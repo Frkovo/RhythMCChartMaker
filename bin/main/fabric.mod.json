@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "rmc-chart",
+  "version": "${version}",
+  "name": "RhythMC-Chart-Maker",
+  "description": "RhythMC Chart Editor",
+  "authors": [],
+  "contact": {},
+  "license": "GPL-3.0",
+  "icon": "assets/rmc-chart/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-datagen": [
+      "cn.frkovo.rhythmcv2.rmcChart.client.RmcChartDataGenerator"
+    ],
+    "client": [
+      "cn.frkovo.rhythmcv2.rmcChart.client.RmcChartClient"
+    ],
+    "main": [
+      "cn.frkovo.rhythmcv2.rmcChart.RmcChart"
+    ]
+  },
+  "mixins": [
+    "rmc-chart.mixins.json",
+    {
+      "config": "rmc-chart.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

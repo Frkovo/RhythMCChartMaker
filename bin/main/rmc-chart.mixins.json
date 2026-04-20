@@ -1,10 +1,9 @@
 {
   "required": true,
   "minVersion": "0.8",
-  "package": "cn.frkovo.rhythmcv2.rmcChart.mixin.client",
+  "package": "cn.frkovo.rhythmcv2.rmcChart.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": [
-    "TitleScreenMixin"
+  "mixins": [
   ],
   "injectors": {
     "defaultRequire": 1
