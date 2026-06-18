@@ -60,6 +60,8 @@ public class ProjectHubScreen extends Screen {
         context.fill(left, top, left + 1, top + panelHeight, 0xFF4FC3F7);
         context.fill(left + panelWidth - 1, top, left + panelWidth, top + panelHeight, 0xFF4FC3F7);
 
+        super.render(context, mouseX, mouseY, delta);
+
         context.drawCenteredTextWithShadow(textRenderer, title, width / 2, top + 10, 0xFFFFFF);
         context.drawText(textRenderer, Text.literal("Projects are stored in .minecraft/projects"), left + 12, top + 30, 0xBFD8E6, false);
         context.drawText(textRenderer, Text.literal(continueProject == null ? "Continue Last Edit: none" : "Continue Last Edit: " + continueProject.name()), left + 12, top + 46, 0xFFD580, false);
@@ -78,8 +80,6 @@ public class ProjectHubScreen extends Screen {
                 context.drawCenteredTextWithShadow(textRenderer, Text.literal("Open"), left + panelWidth - 60, cardY + 18, 0xFFFFFF);
             }
         }
-
-        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override

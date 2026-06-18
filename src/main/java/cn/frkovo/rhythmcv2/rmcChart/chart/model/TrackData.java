@@ -5,6 +5,7 @@ import java.util.List;
 
 public class TrackData {
     private int id;
+    private int beatDivision = 16;
     private final List<NumEventData> speedEvents = new ArrayList<>();
     private final List<NumEventData> xTransformEvents = new ArrayList<>();
     private final List<NumEventData> yTransformEvents = new ArrayList<>();
@@ -36,6 +37,18 @@ public class TrackData {
 
     public void setId(int id) {
         this.id = id;
+    }
+
+    public int beatDivision() {
+        return beatDivision;
+    }
+
+    public void setBeatDivision(int beatDivision) {
+        if (beatDivision <= 0) {
+            this.beatDivision = 16;
+            return;
+        }
+        this.beatDivision = Math.max(1, Math.min(256, beatDivision));
     }
 
     public List<NumEventData> speedEvents() {

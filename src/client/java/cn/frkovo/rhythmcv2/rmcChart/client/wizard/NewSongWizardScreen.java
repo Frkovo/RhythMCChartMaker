@@ -82,6 +82,8 @@ public class NewSongWizardScreen extends Screen {
         context.fill(left, top, left + 1, top + panelHeight, 0xFF4FC3F7);
         context.fill(left + panelWidth - 1, top, left + panelWidth, top + panelHeight, 0xFF4FC3F7);
 
+        super.render(context, mouseX, mouseY, delta);
+
         context.drawCenteredTextWithShadow(textRenderer, title, this.width / 2, top + 8, 0xFFFFFF);
         context.drawText(textRenderer, Text.literal("Song Title"), left + 10, top + 10, 0xA0D8FF, false);
         context.drawText(textRenderer, Text.literal("Composer"), left + 10, top + 50, 0xA0D8FF, false);
@@ -90,8 +92,6 @@ public class NewSongWizardScreen extends Screen {
         context.drawText(textRenderer, Text.literal("Song File"), left + 10, top + 170, 0xA0D8FF, false);
         context.drawText(textRenderer, Text.literal("Audio metadata will auto-fill title/composer/length when available."), left + 10, top + 206, 0x90B4CC, false);
         context.drawText(textRenderer, Text.literal(status), left + 10, top + 254, 0xE8E8E8, false);
-
-        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override

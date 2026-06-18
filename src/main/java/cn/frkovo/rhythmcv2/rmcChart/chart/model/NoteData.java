@@ -7,18 +7,20 @@ public class NoteData {
     private Vec3Data scale;
     private Vec3Data rotation;
     private int holdGroup;
+    private double holdLengthBeats;
 
-    public NoteData(NoteType noteType, double beat, Vec3Data pos, Vec3Data scale, Vec3Data rotation, int holdGroup) {
+    public NoteData(NoteType noteType, double beat, Vec3Data pos, Vec3Data scale, Vec3Data rotation, int holdGroup, double holdLengthBeats) {
         this.noteType = noteType;
         this.beat = beat;
         this.pos = pos;
         this.scale = scale;
         this.rotation = rotation;
         this.holdGroup = holdGroup;
+        this.holdLengthBeats = Math.max(0.0, holdLengthBeats);
     }
 
     public static NoteData createDefault(double beat) {
-        return new NoteData(NoteType.TAP, beat, Vec3Data.zero(), Vec3Data.one(), Vec3Data.zero(), -1);
+        return new NoteData(NoteType.TAP, beat, Vec3Data.zero(), Vec3Data.one(), Vec3Data.zero(), -1, 0.0);
     }
 
     public NoteType noteType() {
@@ -55,5 +57,13 @@ public class NoteData {
 
     public void setHoldGroup(int holdGroup) {
         this.holdGroup = holdGroup;
+    }
+
+    public double holdLengthBeats() {
+        return holdLengthBeats;
+    }
+
+    public void setHoldLengthBeats(double holdLengthBeats) {
+        this.holdLengthBeats = Math.max(0.0, holdLengthBeats);
     }
 }

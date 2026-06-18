@@ -35,6 +35,11 @@ public final class ChartMath {
     }
 
     public static double getDistance(List<NumEventData> speedEvents, double beat) {
+        if (!speedEvents.isEmpty() && beat < speedEvents.getFirst().startBeat()) {
+            NumEventData firstEvent = speedEvents.getFirst();
+            return firstEvent.startValue() * (beat - firstEvent.startBeat());
+        }
+
         double distance = 0.0;
         for (NumEventData event : speedEvents) {
             if (event.startBeat() > beat) {

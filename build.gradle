@@ -28,6 +28,10 @@ fabricApi {
 }
 
 repositories {
+    maven {
+        name = "EngineHub"
+        url = "https://maven.enginehub.org/repo/"
+    }
 }
 
 dependencies {
@@ -37,6 +41,7 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
     modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+    modCompileOnly "com.sk89q.worldedit:worldedit-fabric-mc${project.minecraft_version}:${project.worldedit_version}"
     implementation "org.yaml:snakeyaml:2.4"
     include "org.yaml:snakeyaml:2.4"
     implementation "com.googlecode.soundlibs:vorbisspi:1.0.3.3"

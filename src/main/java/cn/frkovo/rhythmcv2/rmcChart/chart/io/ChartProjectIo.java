@@ -38,6 +38,7 @@ import java.util.Map;
 public final class ChartProjectIo {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Yaml YAML = createYaml();
+    private static final String GENERATED_HOLD_NOTE_KEY = "chartMakerGeneratedHold";
 
     private ChartProjectIo() {
     }
@@ -190,6 +191,7 @@ public final class ChartProjectIo {
 
     private static TrackData loadTrack(JsonObject trackObject) {
         TrackData track = new TrackData(getInt(trackObject, "id", 0));
+        track.setBeatDivision(getInt(trackObject, "beatDivision", 16));
         loadNumEvents(track.speedEvents(), trackObject.get("speedEvents"));
         loadNumEvents(track.xTransformEvents(), trackObject.get("xTransformEvents"));
         loadNumEvents(track.yTransformEvents(), trackObject.get("yTransformEvents"));
@@ -206,13 +208,17 @@ public final class ChartProjectIo {
                 continue;
             }
             JsonObject noteObject = element.getAsJsonObject();
+            if (getBoolean(noteObject, GENERATED_HOLD_NOTE_KEY, false)) {
+                continue;
+            }
             track.notes().add(new NoteData(
                     NoteType.fromId(getInt(noteObject, "noteType", 0)),
                     getDouble(noteObject, "beat", 0.0),
                     getVec3(noteObject, "pos", Vec3Data.zero()),
                     getVec3(noteObject, "scale", Vec3Data.one()),
                     getVec3(noteObject, "rotation", Vec3Data.zero()),
-                    getInt(noteObject, "holdGroup", -1)
+                    getInt(noteObject, "holdGroup", -1),
+                    getDouble(noteObject, "holdLengthBeats", 0.0)
             ));
         }
         return track;
@@ -221,6 +227,7 @@ public final class ChartProjectIo {
     private static JsonObject saveTrack(TrackData track) {
         JsonObject object = new JsonObject();
         object.addProperty("id", track.id());
+        object.addProperty("beatDivision", track.beatDivision());
         object.add("speedEvents", toNumEventArray(track.speedEvents()));
         object.add("xTransformEvents", toNumEventArray(track.xTransformEvents()));
         object.add("yTransformEvents", toNumEventArray(track.yTransformEvents()));
@@ -232,18 +239,88 @@ public final class ChartProjectIo {
         object.add("yScaleEvents", toNumEventArray(track.yScaleEvents()));
         object.add("zScaleEvents", toNumEventArray(track.zScaleEvents()));
         JsonArray notes = new JsonArray();
-        for (NoteData note : track.notes()) {
-            JsonObject noteObject = new JsonObject();
-            noteObject.addProperty("noteType", note.noteType().id());
-            noteObject.addProperty("beat", note.beat());
-            noteObject.add("pos", toVec3Array(note.pos()));
-            noteObject.add("scale", toVec3Array(note.scale()));
-            noteObject.add("rotation", toVec3Array(note.rotation()));
-            noteObject.addProperty("holdGroup", note.holdGroup());
+        for (JsonObject noteObject : materializeNotesForSave(track)) {
             notes.add(noteObject);
         }
         object.add("notes", notes);
         return object;
+    }
+
+    private static List<JsonObject> materializeNotesForSave(TrackData track) {
+        List<JsonObject> notes = new ArrayList<>();
+        Map<Integer, Integer> holdGroupCounts = countHoldGroups(track);
+        int nextHoldGroup = nextHoldGroupId(track);
+        for (NoteData note : track.notes()) {
+            int holdGroup = note.holdGroup();
+            boolean shouldGenerateHoldChain = note.noteType() == NoteType.HOLD
+                    && note.holdLengthBeats() > 0.0
+                    && (holdGroup < 0 || holdGroupCounts.getOrDefault(holdGroup, 0) <= 1);
+            if (shouldGenerateHoldChain && holdGroup < 0) {
+                holdGroup = nextHoldGroup++;
+            }
+            notes.add(toNoteObject(note, holdGroup, false));
+            if (shouldGenerateHoldChain) {
+                addGeneratedHoldTailNotes(notes, track, note, holdGroup);
+            }
+        }
+        notes.sort((left, right) -> Double.compare(getDouble(left, "beat", 0.0), getDouble(right, "beat", 0.0)));
+        return notes;
+    }
+
+    private static Map<Integer, Integer> countHoldGroups(TrackData track) {
+        Map<Integer, Integer> counts = new LinkedHashMap<>();
+        for (NoteData note : track.notes()) {
+            if (note.noteType() == NoteType.HOLD && note.holdGroup() >= 0) {
+                counts.merge(note.holdGroup(), 1, Integer::sum);
+            }
+        }
+        return counts;
+    }
+
+    private static int nextHoldGroupId(TrackData track) {
+        int max = -1;
+        for (NoteData note : track.notes()) {
+            max = Math.max(max, note.holdGroup());
+        }
+        return max + 1;
+    }
+
+    private static void addGeneratedHoldTailNotes(List<JsonObject> notes, TrackData track, NoteData source, int holdGroup) {
+        double step = trackGridStep(track);
+        double endBeat = source.beat() + source.holdLengthBeats();
+        double beat = source.beat() + step;
+        while (beat < endBeat - 1.0E-6) {
+            notes.add(toGeneratedHoldNoteObject(source, holdGroup, beat));
+            beat += step;
+        }
+        notes.add(toGeneratedHoldNoteObject(source, holdGroup, endBeat));
+    }
+
+    private static JsonObject toGeneratedHoldNoteObject(NoteData source, int holdGroup, double beat) {
+        JsonObject object = toNoteObject(source, holdGroup, true);
+        object.addProperty("beat", beat);
+        object.addProperty("holdLengthBeats", 0.0);
+        return object;
+    }
+
+    private static JsonObject toNoteObject(NoteData note, int holdGroup, boolean generatedHoldTail) {
+        JsonObject noteObject = new JsonObject();
+        noteObject.addProperty("noteType", note.noteType().id());
+        noteObject.addProperty("beat", note.beat());
+        noteObject.add("pos", toVec3Array(note.pos()));
+        noteObject.add("scale", toVec3Array(note.scale()));
+        noteObject.add("rotation", toVec3Array(note.rotation()));
+        noteObject.addProperty("holdGroup", holdGroup);
+        noteObject.addProperty("holdLengthBeats", generatedHoldTail ? 0.0 : note.holdLengthBeats());
+        if (generatedHoldTail) {
+            noteObject.addProperty(GENERATED_HOLD_NOTE_KEY, true);
+        }
+        return noteObject;
+    }
+
+    private static double trackGridStep(TrackData track) {
+        int division = track == null ? 16 : track.beatDivision();
+        return Math.max(1.0 / 64.0, 4.0 / Math.max(1, division));
     }
 
     private static EffectData loadEffect(JsonObject effectObject) {
@@ -393,6 +470,10 @@ public final class ChartProjectIo {
 
     private static double getDouble(JsonObject object, String key, double fallback) {
         return object.has(key) ? object.get(key).getAsDouble() : fallback;
+    }
+
+    private static boolean getBoolean(JsonObject object, String key, boolean fallback) {
+        return object.has(key) ? object.get(key).getAsBoolean() : fallback;
     }
 
     private static String getString(JsonObject object, String key, String fallback) {

@@ -18,9 +18,9 @@ abstract class TitleScreenMixin extends Screen {
 
     @Inject(method = "init", at = @At("TAIL"))
     private void rmcChart$addCreateSongButton(CallbackInfo ci) {
-        int buttonWidth = 204;
-        int buttonX = this.width / 2 - buttonWidth / 2;
-        int buttonY = this.height / 4 + 120;
+        int buttonWidth = 140;
+        int buttonX = 8;
+        int buttonY = this.height - 28;
 
         this.addDrawableChild(ButtonWidget.builder(Text.literal("RhythMC Projects"), button ->
                         this.client.setScreen(new ProjectHubScreen((TitleScreen) (Object) this)))

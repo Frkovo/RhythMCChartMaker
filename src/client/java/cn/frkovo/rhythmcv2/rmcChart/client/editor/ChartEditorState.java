@@ -1,5 +1,6 @@
 package cn.frkovo.rhythmcv2.rmcChart.client.editor;
 
+import com.google.gson.JsonObject;
 import cn.frkovo.rhythmcv2.rmcChart.chart.core.TimingTimeline;
 import cn.frkovo.rhythmcv2.rmcChart.chart.io.ChartProjectIo;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.BpmPoint;
@@ -9,6 +10,8 @@ import cn.frkovo.rhythmcv2.rmcChart.chart.model.EffectData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.LevelData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.NoteData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.NumEventData;
+import cn.frkovo.rhythmcv2.rmcChart.chart.model.MetaData;
+import cn.frkovo.rhythmcv2.rmcChart.chart.model.SongManifestData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.TrackData;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.AudioAnalysis;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.AudioAnalysisService;
@@ -18,14 +21,16 @@ import cn.frkovo.rhythmcv2.rmcChart.client.project.ProjectStorage;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 public class ChartEditorState {
+    public record SelectionSnapshot(EditorSelection.Kind kind, Integer trackId, Integer noteIndex, Integer effectIndex, Integer bpmIndex) {
+    }
+
+    public record EditorSnapshot(ChartProject project, ChartDifficulty activeDifficulty, double visibleStartBeat, double beatsPerScreen,
+                                 double playheadBeat, SelectionSnapshot selection) {
+    }
+
     private ChartProject project;
     private ChartDifficulty activeDifficulty = ChartDifficulty.WORLD;
     private EditorSelection selection = EditorSelection.song();
@@ -34,6 +39,9 @@ public class ChartEditorState {
     private double playheadBeat = 0.0;
     private long playheadMillis = 0L;
     private boolean playing = false;
+    private double playbackStartBeat = 0.0;
+    private double playbackEndBeat = Double.NaN;
+    private boolean showOnlySelectedTrack = false;
     private long lastTickNanos = System.nanoTime();
     private String statusMessage = "Ready";
     private final SongAudioPlayer audioPlayer = new SongAudioPlayer();
@@ -42,6 +50,7 @@ public class ChartEditorState {
     private AudioAnalysis audioAnalysis = AudioAnalysis.empty();
     private int revision = 0;
     private final Set<Integer> expandedTrackIds = new HashSet<>();
+    private final Map<Integer, Set<String>> expandedTrackEventGroups = new HashMap<>();
 
     public ChartEditorState() {
         Path defaultPath = ProjectStorage.projectPath("default-project");
@@ -92,6 +101,22 @@ public class ChartEditorState {
         return playing;
     }
 
+    public double playbackStartBeat() {
+        return playbackStartBeat;
+    }
+
+    public double playbackEndBeat() {
+        return playbackEndBeat;
+    }
+
+    public boolean hasPlaybackEndBeat() {
+        return Double.isFinite(playbackEndBeat);
+    }
+
+    public boolean showOnlySelectedTrack() {
+        return showOnlySelectedTrack;
+    }
+
     public String statusMessage() {
         return statusMessage;
     }
@@ -139,33 +164,94 @@ public class ChartEditorState {
             playheadMillis += Math.max(0L, deltaMillis);
             syncAudio(false);
             playheadBeat = timing().calcBeat(playheadMillis);
+            if (hasPlaybackEndBeat() && playheadBeat >= playbackEndBeat) {
+                playheadBeat = playbackEndBeat;
+                playheadMillis = timing().beatToMillis(playheadBeat);
+                playing = false;
+                audioPlayer.pause();
+                syncAudio(true);
+                setStatus("Playback reached Out @ " + formatBeat(playbackEndBeat));
+            }
             keepPlayheadVisible();
         }
         lastTickNanos = now;
     }
 
     public void togglePlayback() {
-        playing = !playing;
         if (playing) {
-            playheadMillis = timing().beatToMillis(playheadBeat);
-            syncAudio(true);
-        } else {
-            audioPlayer.pause();
+            pausePlayback("Playback paused");
+            return;
         }
-        lastTickNanos = System.nanoTime();
-        setStatus(playing ? "Playback started" : "Playback paused");
+        if (hasPlaybackEndBeat() && playheadBeat >= playbackEndBeat) {
+            seekToBeat(playbackStartBeat);
+        }
+        startPlaybackAt(playheadBeat, "Playback started");
+    }
+
+    public void playPreviewRange() {
+        startPlaybackAt(playbackStartBeat, "Playing In/Out range");
     }
 
     public void stopPlayback() {
-        playing = false;
+        pausePlayback("Playback stopped");
         playheadMillis = timing().beatToMillis(playheadBeat);
-        audioPlayer.pause();
         syncAudio(true);
-        setStatus("Playback stopped");
+    }
+
+    public void markPlaybackStartAtPlayhead() {
+        setPlaybackStartBeat(playheadBeat);
+    }
+
+    public void markPlaybackEndAtPlayhead() {
+        setPlaybackEndBeat(playheadBeat);
+    }
+
+    public void setPlaybackStartBeat(double beat) {
+        playbackStartBeat = clampPlaybackBeat(beat);
+        if (hasPlaybackEndBeat() && playbackEndBeat <= playbackStartBeat) {
+            playbackEndBeat = Double.NaN;
+        }
+        setStatus("Playback In @ " + formatBeat(playbackStartBeat));
+    }
+
+    public void setPlaybackEndBeat(double beat) {
+        double endBeat = clampPlaybackBeat(beat);
+        if (endBeat <= playbackStartBeat) {
+            playbackStartBeat = Math.max(-64.0, endBeat - 4.0);
+        }
+        playbackEndBeat = endBeat;
+        setStatus("Playback Out @ " + formatBeat(playbackEndBeat));
+    }
+
+    public void clearPlaybackEndBeat() {
+        playbackEndBeat = Double.NaN;
+        setStatus("Playback Out cleared");
+    }
+
+    public void toggleShowOnlySelectedTrack() {
+        showOnlySelectedTrack = !showOnlySelectedTrack;
+        TrackData track = selectedTrack();
+        setStatus(showOnlySelectedTrack && track != null ? "Showing only Track " + track.id() : "Showing all tracks");
+    }
+
+    public void startPlaybackAt(double beat, String status) {
+        playheadBeat = clampPlaybackBeat(beat);
+        playheadMillis = timing().beatToMillis(playheadBeat);
+        playing = true;
+        lastTickNanos = System.nanoTime();
+        syncAudio(true);
+        setStatus(status);
+    }
+
+    public void pausePlayback(String status) {
+        playing = false;
+        audioPlayer.pause();
+        lastTickNanos = System.nanoTime();
+        setStatus(status);
     }
 
     public void seekToBeat(double beat) {
-        playheadBeat = Math.max(-64.0, beat);
+        playheadBeat = clampPlaybackBeat(beat);
         playheadMillis = timing().beatToMillis(playheadBeat);
         syncAudio(true);
         keepPlayheadVisible();
@@ -177,7 +263,11 @@ public class ChartEditorState {
 
     public void zoom(double factor) {
         double next = beatsPerScreen * factor;
-        beatsPerScreen = Math.max(4.0, Math.min(128.0, next));
+        setBeatsPerScreen(next);
+    }
+
+    public void setBeatsPerScreen(double beatsPerScreen) {
+        this.beatsPerScreen = Math.max(4.0, Math.min(128.0, beatsPerScreen));
         keepPlayheadVisible();
     }
 
@@ -428,12 +518,37 @@ public class ChartEditorState {
         }
     }
 
+    public boolean isTrackEventGroupExpanded(TrackData track, String group) {
+        if (track == null || group == null) return true;
+        return expandedTrackEventGroups.computeIfAbsent(track.id(), k ->
+            new HashSet<>(List.of("Speed", "Position", "Rotation", "Scale"))
+        ).contains(group);
+    }
+
+    public void toggleTrackEventGroupExpanded(TrackData track, String group) {
+        if (track == null || group == null) return;
+        Set<String> groups = expandedTrackEventGroups.computeIfAbsent(track.id(), k ->
+            new HashSet<>(List.of("Speed", "Position", "Rotation", "Scale"))
+        );
+        if (!groups.add(group)) {
+            groups.remove(group);
+        }
+    }
+
     public int trackIndex(TrackData track) {
         return level().tracks().indexOf(track);
     }
 
     public List<TrackData> tracks() {
         return level().tracks();
+    }
+
+    public List<TrackData> visibleTracks() {
+        TrackData selectedTrack = selectedTrack();
+        if (showOnlySelectedTrack && selectedTrack != null) {
+            return List.of(selectedTrack);
+        }
+        return tracks();
     }
 
     public List<EffectData> triggeredEffects() {
@@ -450,20 +565,50 @@ public class ChartEditorState {
         this.statusMessage = statusMessage;
     }
 
+    public EditorSnapshot snapshot() {
+        return new EditorSnapshot(
+                copyProject(project),
+                activeDifficulty,
+                visibleStartBeat,
+                beatsPerScreen,
+                playheadBeat,
+                captureSelection()
+        );
+    }
+
+    public void restoreSnapshot(EditorSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        playing = false;
+        audioPlayer.pause();
+        project = copyProject(snapshot.project());
+        activeDifficulty = snapshot.activeDifficulty();
+        visibleStartBeat = snapshot.visibleStartBeat();
+        beatsPerScreen = snapshot.beatsPerScreen();
+        playheadBeat = snapshot.playheadBeat();
+        selection = restoreSelection(snapshot.selection());
+        playheadMillis = timing().beatToMillis(playheadBeat);
+        ensureSelectionValid();
+        syncAudio(true);
+        revision++;
+    }
+
     public void sortCurrentLevel() {
         level().tracks().sort(Comparator.comparingInt(TrackData::id));
         expandedTrackIds.retainAll(level().tracks().stream().map(TrackData::id).collect(java.util.stream.Collectors.toSet()));
+        expandedTrackEventGroups.keySet().retainAll(level().tracks().stream().map(TrackData::id).collect(java.util.stream.Collectors.toSet()));
         for (TrackData track : level().tracks()) {
-            sortEvents(track.speedEvents());
-            sortEvents(track.xTransformEvents());
-            sortEvents(track.yTransformEvents());
-            sortEvents(track.zTransformEvents());
-            sortEvents(track.xRotateEvents());
-            sortEvents(track.yRotateEvents());
-            sortEvents(track.zRotateEvents());
-            sortEvents(track.xScaleEvents());
-            sortEvents(track.yScaleEvents());
-            sortEvents(track.zScaleEvents());
+            normalizeSingleTrackEvent(track.speedEvents());
+            normalizeSingleTrackEvent(track.xTransformEvents());
+            normalizeSingleTrackEvent(track.yTransformEvents());
+            normalizeSingleTrackEvent(track.zTransformEvents());
+            normalizeSingleTrackEvent(track.xRotateEvents());
+            normalizeSingleTrackEvent(track.yRotateEvents());
+            normalizeSingleTrackEvent(track.zRotateEvents());
+            normalizeSingleTrackEvent(track.xScaleEvents());
+            normalizeSingleTrackEvent(track.yScaleEvents());
+            normalizeSingleTrackEvent(track.zScaleEvents());
             track.notes().sort(Comparator.comparingDouble(NoteData::beat));
         }
         level().effects().sort(Comparator.comparingDouble(EffectData::beat));
@@ -472,6 +617,16 @@ public class ChartEditorState {
 
     private void sortEvents(List<NumEventData> events) {
         events.sort(Comparator.comparingDouble(NumEventData::startBeat));
+    }
+
+    private void normalizeSingleTrackEvent(List<NumEventData> events) {
+        sortEvents(events);
+        if (events.size() <= 1) {
+            return;
+        }
+        NumEventData first = events.getFirst();
+        events.clear();
+        events.add(first);
     }
 
     private void ensureSelectionValid() {
@@ -511,11 +666,181 @@ public class ChartEditorState {
         return String.format(java.util.Locale.ROOT, "%.3f", beat);
     }
 
+    private SelectionSnapshot captureSelection() {
+        return switch (selection.kind()) {
+            case TRACK -> new SelectionSnapshot(selection.kind(), selection.track() == null ? null : selection.track().id(), null, null, null);
+            case NOTE -> new SelectionSnapshot(
+                    selection.kind(),
+                    selection.track() == null ? null : selection.track().id(),
+                    selection.track() == null || selection.note() == null ? null : selection.track().notes().indexOf(selection.note()),
+                    null,
+                    null
+            );
+            case EFFECT -> new SelectionSnapshot(selection.kind(), null, null, level().effects().indexOf(selection.effect()), null);
+            case BPM -> new SelectionSnapshot(selection.kind(), null, null, null, level().meta().bpms().indexOf(selection.bpm()));
+            default -> new SelectionSnapshot(selection.kind(), null, null, null, null);
+        };
+    }
+
+    private EditorSelection restoreSelection(SelectionSnapshot selectionSnapshot) {
+        if (selectionSnapshot == null) {
+            return EditorSelection.song();
+        }
+        return switch (selectionSnapshot.kind()) {
+            case SONG -> EditorSelection.song();
+            case META -> EditorSelection.meta();
+            case TRACK -> {
+                TrackData track = trackById(selectionSnapshot.trackId());
+                yield track == null ? EditorSelection.meta() : EditorSelection.track(track);
+            }
+            case NOTE -> {
+                TrackData track = trackById(selectionSnapshot.trackId());
+                if (track == null || selectionSnapshot.noteIndex() == null || selectionSnapshot.noteIndex() < 0 || selectionSnapshot.noteIndex() >= track.notes().size()) {
+                    yield EditorSelection.meta();
+                }
+                yield EditorSelection.note(track, track.notes().get(selectionSnapshot.noteIndex()));
+            }
+            case EFFECT -> {
+                if (selectionSnapshot.effectIndex() == null || selectionSnapshot.effectIndex() < 0 || selectionSnapshot.effectIndex() >= level().effects().size()) {
+                    yield EditorSelection.meta();
+                }
+                yield EditorSelection.effect(level().effects().get(selectionSnapshot.effectIndex()));
+            }
+            case BPM -> {
+                if (selectionSnapshot.bpmIndex() == null || selectionSnapshot.bpmIndex() < 0 || selectionSnapshot.bpmIndex() >= level().meta().bpms().size()) {
+                    yield EditorSelection.meta();
+                }
+                yield EditorSelection.bpm(level().meta().bpms().get(selectionSnapshot.bpmIndex()));
+            }
+        };
+    }
+
+    private TrackData trackById(Integer trackId) {
+        if (trackId == null) {
+            return null;
+        }
+        for (TrackData track : level().tracks()) {
+            if (track.id() == trackId) {
+                return track;
+            }
+        }
+        return null;
+    }
+
+    private ChartProject copyProject(ChartProject source) {
+        EnumMap<ChartDifficulty, LevelData> levels = new EnumMap<>(ChartDifficulty.class);
+        for (Map.Entry<ChartDifficulty, LevelData> entry : source.levels().entrySet()) {
+            levels.put(entry.getKey(), copyLevel(entry.getValue()));
+        }
+        return new ChartProject(source.projectPath(), copyManifest(source.manifest()), levels);
+    }
+
+    private SongManifestData copyManifest(SongManifestData source) {
+        SongManifestData manifest = SongManifestData.createDefault();
+        manifest.setName(source.name());
+        manifest.setComposer(source.composer());
+        manifest.setIcon(source.icon());
+        manifest.setAlias(source.alias());
+        manifest.setLength(source.length());
+        manifest.setRespackSha1(source.respackSha1());
+        manifest.setKey(source.key());
+        manifest.setDescription(source.description());
+        manifest.setSongId(source.songId());
+        manifest.setVersion(source.version());
+        manifest.comments().addAll(source.comments());
+        manifest.playerAlias().addAll(source.playerAlias());
+        manifest.tags().addAll(source.tags());
+        copyMapList(source.unlockSong(), manifest.unlockSong());
+        copyMapList(source.unlockWorld(), manifest.unlockWorld());
+        copyMapList(source.unlockNether(), manifest.unlockNether());
+        copyMapList(source.unlockVoid(), manifest.unlockVoid());
+        return manifest;
+    }
+
+    private void copyMapList(List<Map<String, Object>> source, List<Map<String, Object>> target) {
+        target.clear();
+        for (Map<String, Object> map : source) {
+            target.add(new LinkedHashMap<>(map));
+        }
+    }
+
+    private LevelData copyLevel(LevelData source) {
+        LevelData level = new LevelData(copyMeta(source.meta()));
+        for (TrackData track : source.tracks()) {
+            level.tracks().add(copyTrack(track));
+        }
+        for (EffectData effect : source.effects()) {
+            level.effects().add(copyEffect(effect));
+        }
+        return level;
+    }
+
+    private MetaData copyMeta(MetaData source) {
+        MetaData meta = new MetaData(source.uid(), source.initialArena(), source.offset(), source.level());
+        meta.charters().addAll(source.charters());
+        meta.comments().addAll(source.comments());
+        for (BpmPoint bpm : source.bpms()) {
+            meta.bpms().add(copyBpm(bpm));
+        }
+        return meta;
+    }
+
+    private TrackData copyTrack(TrackData source) {
+        TrackData track = new TrackData(source.id());
+        track.setBeatDivision(source.beatDivision());
+        copyEvents(source.speedEvents(), track.speedEvents());
+        copyEvents(source.xTransformEvents(), track.xTransformEvents());
+        copyEvents(source.yTransformEvents(), track.yTransformEvents());
+        copyEvents(source.zTransformEvents(), track.zTransformEvents());
+        copyEvents(source.xRotateEvents(), track.xRotateEvents());
+        copyEvents(source.yRotateEvents(), track.yRotateEvents());
+        copyEvents(source.zRotateEvents(), track.zRotateEvents());
+        copyEvents(source.xScaleEvents(), track.xScaleEvents());
+        copyEvents(source.yScaleEvents(), track.yScaleEvents());
+        copyEvents(source.zScaleEvents(), track.zScaleEvents());
+        for (NoteData note : source.notes()) {
+            track.notes().add(copyNote(note));
+        }
+        return track;
+    }
+
+    private void copyEvents(List<NumEventData> source, List<NumEventData> target) {
+        target.clear();
+        for (NumEventData event : source) {
+            target.add(copyEvent(event));
+        }
+    }
+
+    private NumEventData copyEvent(NumEventData source) {
+        return new NumEventData(source.startBeat(), source.endBeat(), source.startValue(), source.endValue(), source.easingType());
+    }
+
+    private NoteData copyNote(NoteData source) {
+        return new NoteData(source.noteType(), source.beat(), source.pos().copy(), source.scale().copy(), source.rotation().copy(), source.holdGroup(), source.holdLengthBeats());
+    }
+
+    private EffectData copyEffect(EffectData source) {
+        JsonObject properties = source.properties() == null ? new JsonObject() : source.properties().deepCopy();
+        return new EffectData(source.effectType(), source.beat(), properties);
+    }
+
+    private BpmPoint copyBpm(BpmPoint source) {
+        return new BpmPoint(source.beat(), source.bpm());
+    }
+
     private void resetExpandedTracks() {
         expandedTrackIds.clear();
+        expandedTrackEventGroups.clear();
         for (TrackData track : level().tracks()) {
             expandedTrackIds.add(track.id());
         }
+    }
+
+    private double clampPlaybackBeat(double beat) {
+        if (!Double.isFinite(beat)) {
+            return 0.0;
+        }
+        return Math.max(-64.0, beat);
     }
 
     private void syncAudio(boolean forceSeek) {

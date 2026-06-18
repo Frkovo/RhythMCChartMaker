@@ -58,6 +58,9 @@ public class ProjectBrowserScreen extends Screen {
 
         context.fill(left, top, left + panelWidth, top + panelHeight, 0xCC10141C);
         drawOutline(context, left, top, panelWidth, panelHeight, 0xFF4FC3F7);
+
+        super.render(context, mouseX, mouseY, delta);
+
         context.drawCenteredTextWithShadow(textRenderer, title, width / 2, top + 8, 0xFFFFFF);
         context.drawText(textRenderer, Text.literal(status), left + 12, top + 24, 0xBFD8E6, false);
 
@@ -78,8 +81,6 @@ public class ProjectBrowserScreen extends Screen {
             drawProjectCard(context, summary, left + 12, rowY, panelWidth - 24, false, false);
             rowY += 58;
         }
-
-        super.render(context, mouseX, mouseY, delta);
     }
 
     @Override
