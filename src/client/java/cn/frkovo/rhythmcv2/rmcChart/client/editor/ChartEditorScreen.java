@@ -18,6 +18,10 @@ import cn.frkovo.rhythmcv2.rmcChart.chart.model.NumEventData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.SongManifestData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.TrackData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.Vec3Data;
+import cn.frkovo.rhythmcv2.rmcChart.client.net.PreviewClient;
+import cn.frkovo.rhythmcv2.rmcChart.client.project.ProjectBrowserScreen;
+import cn.frkovo.rhythmcv2.rmcChart.client.project.ProjectHubScreen;
+import cn.frkovo.rhythmcv2.rmcChart.client.wizard.NewSongWizardScreen;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
@@ -36,6 +40,7 @@ import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.Text;
 
 import java.nio.file.InvalidPathException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -71,12 +76,16 @@ public class ChartEditorScreen extends Screen {
     private static final int TIMELINE_ZOOM_BAR_WIDTH = 126;
     private static final int TIMELINE_ZOOM_BAR_HEIGHT = 8;
     private static final int TRACK_BAR_HEIGHT = 26;
+    private static final int FX_TRACK_HEADER_HEIGHT = 24;
+    private static final int FX_EFFECT_CLIP_HEIGHT = 30;
     private static final int MENU_TAB_WIDTH = 70;
     private static final int EVENT_DRAG_WIDTH = 14;
     private static final int EVENT_CELL_WIDTH = 30;
     private static final int EVENT_EASE_WIDTH = 72;
     private static final int EVENT_COPY_WIDTH = 22;
     private static final int EVENT_REMOVE_WIDTH = 18;
+    private static final int MAP_OVERLAY_HEIGHT = 42;
+    private static final int MAP_OVERLAY_BUTTON_WIDTH = 44;
     private static final int SMOOTHING_POPUP_WIDTH = 360;
     private static final int SMOOTHING_POPUP_HEIGHT = 210;
     private static final double NOTE_LANE_DEFAULT_RANGE = 2.0;
@@ -112,6 +121,10 @@ public class ChartEditorScreen extends Screen {
     private ButtonWidget smoothingFillButton;
     private ButtonWidget smoothingApplyButton;
     private ButtonWidget smoothingCancelButton;
+    private ButtonWidget quickNoteTypeButton;
+    private ButtonWidget quickNoteTrackPrevButton;
+    private ButtonWidget quickNoteTrackNextButton;
+    private ButtonWidget quickEffectTypeButton;
 
     private EditorSelection lastSelection = null;
     private DragMode dragMode = DragMode.NONE;
@@ -121,12 +134,16 @@ public class ChartEditorScreen extends Screen {
     private SelectedEventClip selectedEventClip;
     private NoteAxis activeNoteAxis = NoteAxis.X;
     private final LinkedHashSet<SelectedNote> selectedNotes = new LinkedHashSet<>();
+    private final LinkedHashSet<SelectedEffect> selectedEffects = new LinkedHashSet<>();
     private final LinkedHashSet<SelectedEventClip> selectedEventClips = new LinkedHashSet<>();
     private SelectionBox selectionBox;
     private boolean selectionBoxAdditive;
     private double snapGuideBeat = Double.NaN;
     private final Map<SelectedNote, NoteDragSnapshot> noteDragSnapshots = new HashMap<>();
+    private final Map<SelectedEffect, EffectDragSnapshot> effectDragSnapshots = new HashMap<>();
     private final Map<SelectedEventClip, EventClipDragSnapshot> eventClipDragSnapshots = new HashMap<>();
+    private final Map<SelectedNote, Vec3Data> mapNoteDragOrigins = new HashMap<>();
+    private final Map<EffectData, Vec3Data> mapEffectDragOrigins = new HashMap<>();
     private final Set<String> collapsedPropertySections = new LinkedHashSet<>();
     private final List<PropertySectionHeader> propertySectionHeaders = new ArrayList<>();
     private final List<TrackEventEditor> trackEventEditors = new ArrayList<>();
@@ -137,6 +154,8 @@ public class ChartEditorScreen extends Screen {
     private final Deque<ChartEditorState.EditorSnapshot> redoSnapshots = new ArrayDeque<>();
     private double dragAnchorBeat;
     private double dragAnchorAxisValue;
+    private double mapDragAnchorMouseX;
+    private double mapDragAnchorMouseY;
     private SelectedNote draggingHoldLengthNote;
     private double dragAnchorHoldLength;
     private TrackEventEditor draggingTrackEventEditor;
@@ -150,6 +169,7 @@ public class ChartEditorScreen extends Screen {
     private SelectionBox trackEventSelectionBox;
     private boolean trackEventSelectionAdditive;
     private NoteClipboard noteClipboard;
+    private EffectClipboard effectClipboard;
     private int lastSnapshotRevision = -1;
     private boolean applyingHistorySnapshot;
     private ToolbarMenu activeToolbarMenu = ToolbarMenu.FILE;
@@ -159,6 +179,18 @@ public class ChartEditorScreen extends Screen {
     private EasingType smoothingEasingType = EasingType.LINEAR;
     private NoteType smoothingNoteType = NoteType.TAP;
     private boolean smoothingFillEnabled = true;
+    private boolean groupNamePopupOpen;
+    private int groupNamePopupX;
+    private int groupNamePopupY;
+    private static final int GROUP_NAME_POPUP_WIDTH = 220;
+    private static final int GROUP_NAME_POPUP_HEIGHT = 72;
+    private TextFieldWidget groupNameField;
+    private ButtonWidget groupNameApplyButton;
+    private ButtonWidget groupNameCancelButton;
+    private PendingPreviewAction pendingPreviewAction = PendingPreviewAction.NONE;
+    private double pendingServerPreviewBeat = Double.NaN;
+    private boolean openWorldPreviewOnReady;
+    private boolean autoPreviewStarted;
 
     public ChartEditorScreen(ChartEditorState state) {
         super(Text.literal("RhythMC Chart Maker"));
@@ -227,6 +259,7 @@ public class ChartEditorScreen extends Screen {
         pathField.setMaxLength(512);
         pathField.setText(state.project().projectPath().toString());
         createSmoothingPopupWidgets();
+        RmcChartClient.getPreviewClient().setEventHandler(this::handleServerPreviewEvent);
 
         int buttonY = 34;
         addTopButtons(buttonY);
@@ -239,12 +272,32 @@ public class ChartEditorScreen extends Screen {
         } else {
             lastSnapshotRevision = state.revision();
         }
+        if (!autoPreviewStarted
+                && RmcChartClient.getPreviewClient().isReady()
+                && !state.serverPreviewRunning()
+                && !state.previewUploading()
+                && !state.previewChartUploaded()
+                && !state.previewAutoStarted()) {
+            autoPreviewStarted = true;
+            state.markPreviewAutoStarted();
+            startWorldPreviewFromEditor(PendingPreviewAction.START);
+        }
     }
 
     @Override
     public void tick() {
         super.tick();
+        if (!RmcChartClient.canOpenEditor(MinecraftClient.getInstance())) {
+            state.stopServerPreviewAudio("Editor locked: preview server handshake lost");
+            close();
+            return;
+        }
         state.tick();
+        if (state.previewChartDirty()
+                && !state.previewUploading()
+                && RmcChartClient.getPreviewClient().isReady()) {
+            startWorldPreviewFromEditor(PendingPreviewAction.LOAD_ONLY);
+        }
         captureHistorySnapshotIfNeeded();
         if (!state.selection().equals(lastSelection)) {
             propertyScroll = 0;
@@ -274,16 +327,24 @@ public class ChartEditorScreen extends Screen {
         drawPropertyPanel(context, layout.rightX(), layout.topY(), layout.rightWidth(), layout.panelHeight());
         drawStatusBar(context);
         drawSmoothingPopupBackground(context);
+        drawGroupNamePopupBackground(context);
 
         super.render(context, mouseX, mouseY, delta);
         drawTrackEventEasingPopup(context, mouseX, mouseY);
         drawSmoothingPopupText(context);
+        drawGroupNamePopupText(context);
     }
 
     @Override
     public boolean mouseClicked(Click click, boolean doubleClick) {
         double mouseX = click.x();
         double mouseY = click.y();
+        if (groupNamePopupOpen) {
+            if (isInside(mouseX, mouseY, groupNamePopupX(), groupNamePopupY(), GROUP_NAME_POPUP_WIDTH, GROUP_NAME_POPUP_HEIGHT)) {
+                return super.mouseClicked(click, doubleClick) || true;
+            }
+            return true;
+        }
         if (smoothingPopupOpen) {
             if (isInside(mouseX, mouseY, smoothingPopupX(), smoothingPopupY(), SMOOTHING_POPUP_WIDTH, SMOOTHING_POPUP_HEIGHT)) {
                 return super.mouseClicked(click, doubleClick) || true;
@@ -342,6 +403,17 @@ public class ChartEditorScreen extends Screen {
             } else if (dragMode == DragMode.TRACK_EVENT_ROW) {
                 draggingTrackEventMouseY = click.y();
                 updateDraggedTrackEventTarget(click.y());
+            } else if (dragMode == DragMode.MAP_NOTE || dragMode == DragMode.MAP_EFFECT) {
+                EditorLayout layout = editorLayout();
+                int mapX = layout.leftX() + 10;
+                int mapY = layout.topY() + 28;
+                int mapSize = layout.leftWidth() - 20;
+                handleCurrentFrameMapDrag(click.x(), click.y(), mapX, mapY, mapSize, mapSize);
+            } else if (dragMode == DragMode.TIMELINE_ZOOM) {
+                EditorLayout layout = editorLayout();
+                int contentX = layout.centerX() + TIMELINE_LABEL_WIDTH;
+                int contentWidth = Math.max(48, layout.centerWidth() - TIMELINE_LABEL_WIDTH);
+                setTimelineZoomFromMouseX(click.x(), contentX, contentWidth);
             } else {
                 double mouseX = click.x();
                 double mouseY = click.y();
@@ -367,7 +439,10 @@ public class ChartEditorScreen extends Screen {
         selectionBox = null;
         snapGuideBeat = Double.NaN;
         noteDragSnapshots.clear();
+        effectDragSnapshots.clear();
         eventClipDragSnapshots.clear();
+        mapNoteDragOrigins.clear();
+        mapEffectDragOrigins.clear();
         draggingTrackEventEditor = null;
         draggingTrackEventSourceIndex = -1;
         draggingTrackEventTargetIndex = -1;
@@ -407,8 +482,22 @@ public class ChartEditorScreen extends Screen {
     @Override
     public boolean keyPressed(KeyInput keyInput) {
         int keyCode = keyInput.key();
+        if (groupNamePopupOpen) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.cancelKeyBinding())) {
+                closeGroupNamePopup();
+                return true;
+            }
+            if (keyCode == InputUtil.GLFW_KEY_ENTER || keyCode == InputUtil.GLFW_KEY_KP_ENTER) {
+                applyGroupNameFromPopup();
+                return true;
+            }
+            if (super.keyPressed(keyInput)) {
+                return true;
+            }
+            return true;
+        }
         if (smoothingPopupOpen) {
-            if (keyCode == InputUtil.GLFW_KEY_ESCAPE) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.cancelKeyBinding())) {
                 closeSmoothingPopup();
                 return true;
             }
@@ -421,7 +510,7 @@ public class ChartEditorScreen extends Screen {
             }
             return true;
         }
-        if (isControlDown() && keyCode == InputUtil.GLFW_KEY_3) {
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.smoothingPopupKeyBinding()) && isControlDown()) {
             openSmoothingPopup();
             return true;
         }
@@ -429,7 +518,7 @@ public class ChartEditorScreen extends Screen {
             return true;
         }
         if (isControlDown()) {
-            if (keyCode == InputUtil.GLFW_KEY_Z) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.undoKeyBinding())) {
                 if (isShiftDown()) {
                     redoEditorChange();
                 } else {
@@ -437,33 +526,57 @@ public class ChartEditorScreen extends Screen {
                 }
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_Y) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.redoKeyBinding())) {
                 redoEditorChange();
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_A) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.newProjectKeyBinding())) {
+                openNewProjectWizard();
+                return true;
+            }
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.openProjectKeyBinding())) {
+                openProjectBrowser();
+                return true;
+            }
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.selectAllKeyBinding())) {
                 selectAllNotes();
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_C) {
-                copySelectedNotesToClipboard();
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.copyKeyBinding())) {
+                if (!currentSelectedEffects().isEmpty()) {
+                    copySelectedEffectsToClipboard();
+                } else {
+                    copySelectedNotesToClipboard();
+                }
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_X) {
-                cutSelectedNotesToClipboard();
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.cutKeyBinding())) {
+                if (!currentSelectedEffects().isEmpty()) {
+                    cutSelectedEffectsToClipboard();
+                } else {
+                    cutSelectedNotesToClipboard();
+                }
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_V) {
-                pasteClipboardNotes();
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.pasteKeyBinding())) {
+                if (effectClipboard != null && !effectClipboard.entries().isEmpty() && (noteClipboard == null || noteClipboard.entries().isEmpty() || !currentSelectedEffects().isEmpty())) {
+                    pasteClipboardEffects();
+                } else {
+                    pasteClipboardNotes();
+                }
+                return true;
+            }
+            if (keyCode == InputUtil.GLFW_KEY_G) {
+                groupSelectedObjects();
                 return true;
             }
         }
         if (isAltDown() && hasSelectedNotes()) {
-            if (keyCode == InputUtil.GLFW_KEY_LEFT) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.seekBackwardKeyBinding())) {
                 moveSelectedNotesByShortcut(-noteShortcutBeatStep(), 0);
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_RIGHT) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.seekForwardKeyBinding())) {
                 moveSelectedNotesByShortcut(noteShortcutBeatStep(), 0);
                 return true;
             }
@@ -480,57 +593,65 @@ public class ChartEditorScreen extends Screen {
             if (getFocused() instanceof TextFieldWidget) {
                 return false;
             }
-            if (keyCode == InputUtil.GLFW_KEY_1) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.noteTapKeyBinding())) {
                 createNoteFromShortcut(NoteType.TAP);
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_2) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.noteLookKeyBinding())) {
                 createNoteFromShortcut(NoteType.LOOK);
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_3) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.noteHoldKeyBinding())) {
                 createNoteFromShortcut(NoteType.HOLD);
                 return true;
             }
-            if (keyCode == InputUtil.GLFW_KEY_4) {
+            if (RmcChartClient.consumeSinglePress(RmcChartClient.noteDodgeKeyBinding())) {
                 createNoteFromShortcut(NoteType.DODGE);
                 return true;
             }
         }
-        if (keyCode == InputUtil.GLFW_KEY_ESCAPE) {
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.cancelKeyBinding())) {
             clearTimelineSelections();
             if (state.selection().kind() == EditorSelection.Kind.NOTE) {
                 state.setSelection(EditorSelection.track(state.selection().track()));
             }
             return true;
         }
-        if (keyCode == InputUtil.GLFW_KEY_SPACE) {
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (RmcChartClient.getWorldLauncher().isEditorWorldActive(client)) {
-                RmcChartClient.getWorldLauncher().toggleWorldPlayback();
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.playPreviewKeyBinding()) && !isControlDown() && !isAltDown()) {
+            if (getFocused() instanceof TextFieldWidget) {
+                return false;
+            }
+            if (state.playing()) {
+                state.stopPlayback();
+                RmcChartClient.getPreviewClient().sendPreviewStop();
             } else {
-                state.togglePlayback();
+                state.startPlaybackAt(state.playheadBeat(), "Playback started");
+                RmcChartClient.getPreviewClient().sendPreviewStart(state.playheadBeat());
             }
             return true;
         }
-        if (keyCode == InputUtil.GLFW_KEY_DELETE || keyCode == InputUtil.GLFW_KEY_BACKSPACE) {
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.toggleLocalPlaybackKeyBinding())) {
+            state.togglePlayback();
+            return true;
+        }
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.openEditorKeyBinding()) && !isControlDown() && !isAltDown()) {
+            close();
+            return true;
+        }
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.deleteKeyBinding())) {
             deleteCurrentSelection();
             return true;
         }
-        if (keyCode == InputUtil.GLFW_KEY_RIGHT) {
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.seekForwardKeyBinding())) {
             state.seekToBeat(state.playheadBeat() + 0.25);
             return true;
         }
-        if (keyCode == InputUtil.GLFW_KEY_LEFT) {
+        if (RmcChartClient.consumeSinglePress(RmcChartClient.seekBackwardKeyBinding())) {
             state.seekToBeat(state.playheadBeat() - 0.25);
             return true;
         }
-        if (isControlDown() && keyCode == InputUtil.GLFW_KEY_S) {
+        if (isControlDown() && RmcChartClient.consumeSinglePress(RmcChartClient.saveKeyBinding())) {
             saveProject();
-            return true;
-        }
-        if (isControlDown() && keyCode == InputUtil.GLFW_KEY_O) {
-            loadProject();
             return true;
         }
         return false;
@@ -541,8 +662,9 @@ public class ChartEditorScreen extends Screen {
             return;
         }
         int deletedNotes = deleteSelectedNotes();
+        int deletedEffects = deleteSelectedEffects();
         int deletedClips = deleteSelectedEventClips();
-        if (deletedNotes == 0 && deletedClips == 0) {
+        if (deletedNotes == 0 && deletedEffects == 0 && deletedClips == 0) {
             state.deleteSelection();
             clearTimelineSelections();
             return;
@@ -550,10 +672,13 @@ public class ChartEditorScreen extends Screen {
         if (state.selection().note() != null && !state.selection().track().notes().contains(state.selection().note())) {
             state.setSelection(EditorSelection.track(state.selection().track()));
         }
+        if (state.selection().effect() != null && !state.level().effects().contains(state.selection().effect())) {
+            state.setSelection(EditorSelection.meta());
+        }
         clearTimelineSelections();
         state.sortCurrentLevel();
         state.markDirty();
-        state.setStatus("Deleted " + deletedNotes + " note(s), " + deletedClips + " event clip(s)");
+        state.setStatus("Deleted " + deletedNotes + " note(s), " + deletedEffects + " effect(s), " + deletedClips + " event clip(s)");
         populateFieldsFromSelection();
         captureHistorySnapshotIfNeeded();
     }
@@ -606,6 +731,9 @@ public class ChartEditorScreen extends Screen {
         clearTimelineSelections();
         if (state.selection().note() != null && state.selection().track() != null) {
             selectedNotes.add(new SelectedNote(state.selection().track(), state.selection().note()));
+        }
+        if (state.selection().effect() != null) {
+            selectedEffects.add(new SelectedEffect(state.selection().effect()));
         }
         populateFieldsFromSelection();
         layoutPropertyFields();
@@ -699,6 +827,7 @@ public class ChartEditorScreen extends Screen {
             return;
         }
         selectedEventClips.clear();
+        selectedEffects.clear();
         int anchorTrackIndex = state.selectedTrack() == null ? noteClipboard.baseTrackIndex() : state.trackIndex(state.selectedTrack());
         double anchorBeat = state.playheadBeat();
         List<SelectedNote> pastedNotes = new ArrayList<>();
@@ -718,6 +847,93 @@ public class ChartEditorScreen extends Screen {
         populateFieldsFromSelection();
         captureHistorySnapshotIfNeeded();
         state.setStatus("Pasted " + pastedNotes.size() + " note(s)");
+    }
+
+    private List<SelectedEffect> currentSelectedEffects() {
+        if (!selectedEffects.isEmpty()) {
+            return new ArrayList<>(selectedEffects);
+        }
+        if (state.selection().effect() != null) {
+            return new ArrayList<>(List.of(new SelectedEffect(state.selection().effect())));
+        }
+        return new ArrayList<>();
+    }
+
+    private void copySelectedEffectsToClipboard() {
+        List<SelectedEffect> effects = currentSelectedEffects();
+        if (effects.isEmpty()) {
+            state.setStatus("No selected effects to copy");
+            return;
+        }
+        effects.sort(Comparator.comparingDouble(selectedEffect -> selectedEffect.effect().beat()));
+        double baseBeat = effects.getFirst().effect().beat();
+        List<EffectClipboardEntry> entries = new ArrayList<>();
+        for (SelectedEffect selectedEffect : effects) {
+            EffectData effect = selectedEffect.effect();
+            JsonObject properties = effect.properties() == null ? new JsonObject() : effect.properties().deepCopy();
+            entries.add(new EffectClipboardEntry(
+                    effect.beat() - baseBeat,
+                    effect.effectType(),
+                    properties
+            ));
+        }
+        effectClipboard = new EffectClipboard(entries, baseBeat);
+        state.setStatus("Copied " + entries.size() + " effect(s)");
+    }
+
+    private void cutSelectedEffectsToClipboard() {
+        List<SelectedEffect> effects = currentSelectedEffects();
+        if (effects.isEmpty()) {
+            state.setStatus("No selected effects to cut");
+            return;
+        }
+        copySelectedEffectsToClipboard();
+        int deleted = deleteSelectedEffects();
+        if (deleted <= 0) {
+            return;
+        }
+        clearTimelineSelections();
+        state.sortCurrentLevel();
+        state.markDirty();
+        state.setSelection(EditorSelection.meta());
+        populateFieldsFromSelection();
+        captureHistorySnapshotIfNeeded();
+        state.setStatus("Cut " + deleted + " effect(s)");
+    }
+
+    private void pasteClipboardEffects() {
+        if (effectClipboard == null || effectClipboard.entries().isEmpty()) {
+            state.setStatus("Clipboard has no effects");
+            return;
+        }
+        selectedNotes.clear();
+        selectedEventClips.clear();
+        double anchorBeat = state.playheadBeat();
+        List<SelectedEffect> pastedEffects = new ArrayList<>();
+        for (EffectClipboardEntry entry : effectClipboard.entries()) {
+            EffectData effect = new EffectData(entry.effectType(), anchorBeat + entry.beatOffset(), entry.properties().deepCopy());
+            state.level().effects().add(effect);
+            pastedEffects.add(new SelectedEffect(effect));
+        }
+        state.sortCurrentLevel();
+        state.markDirty();
+        replaceSelectedEffects(pastedEffects);
+        if (!pastedEffects.isEmpty()) {
+            state.setSelection(EditorSelection.effect(pastedEffects.getFirst().effect()));
+        }
+        populateFieldsFromSelection();
+        captureHistorySnapshotIfNeeded();
+        state.setStatus("Pasted " + pastedEffects.size() + " effect(s)");
+    }
+
+    private void groupSelectedObjects() {
+        List<SelectedNote> notes = currentSelectedNotes();
+        List<SelectedEffect> effects = currentSelectedEffects();
+        if (notes.isEmpty() && effects.isEmpty()) {
+            state.setStatus("Select notes or effects to group");
+            return;
+        }
+        openGroupNamePopup();
     }
 
     private void moveSelectedNotesByShortcut(double beatDelta, int trackDelta) {
@@ -1112,8 +1328,23 @@ public class ChartEditorScreen extends Screen {
         return deleted;
     }
 
+    private int deleteSelectedEffects() {
+        int deleted = 0;
+        List<EffectData> effects = new ArrayList<>();
+        for (SelectedEffect selectedEffect : selectedEffects) {
+            effects.add(selectedEffect.effect());
+        }
+        for (EffectData effect : effects) {
+            if (state.level().effects().remove(effect)) {
+                deleted++;
+            }
+        }
+        return deleted;
+    }
+
     private void clearTimelineSelections() {
         selectedNotes.clear();
+        selectedEffects.clear();
         selectedEventClips.clear();
         selectedEventClip = null;
         selectedEventHandle = null;
@@ -1158,24 +1389,37 @@ public class ChartEditorScreen extends Screen {
 
         int actionX = tabX + 10;
         int actionY = y;
-        createToolbarAction(ToolbarMenu.FILE, actionX, actionY, 48, "New", b -> newProject(), false);
-        createToolbarAction(ToolbarMenu.FILE, actionX + 52, actionY, 48, "Load", b -> loadProject(), false);
-        createToolbarAction(ToolbarMenu.FILE, actionX + 104, actionY, 48, "Save", b -> saveProject(), false);
-        createToolbarAction(ToolbarMenu.FILE, actionX + 156, actionY, 56, "Audio", b -> reloadAudio(), false);
-        createToolbarAction(ToolbarMenu.FILE, actionX + 216, actionY, 54, "Title", b -> MinecraftClient.getInstance().disconnect(new TitleScreen(), false), true);
+        createToolbarAction(ToolbarMenu.FILE, actionX, actionY, 58, "Create", b -> openNewProjectWizard(), false);
+        createToolbarAction(ToolbarMenu.FILE, actionX + 62, actionY, 62, "Projects", b -> openProjectBrowser(), false);
+        createToolbarAction(ToolbarMenu.FILE, actionX + 128, actionY, 48, "Save", b -> saveProject(), false);
+        createToolbarAction(ToolbarMenu.FILE, actionX + 180, actionY, 56, "Audio", b -> reloadAudio(), false);
+        createToolbarAction(ToolbarMenu.FILE, actionX + 240, actionY, 44, "Hub", b -> openProjectHub(), false);
+        createToolbarAction(ToolbarMenu.FILE, actionX + 288, actionY, 48, "JSON", b -> openRawJsonEditor(), false);
+        createToolbarAction(ToolbarMenu.FILE, actionX + 340, actionY, 54, "Title", b -> returnToTitle(), true);
 
         createToolbarAction(ToolbarMenu.EDIT, actionX, actionY, 54, "+Track", b -> state.addTrack(), false);
         createToolbarAction(ToolbarMenu.EDIT, actionX + 58, actionY, 50, "+Note", b -> state.addNote(), false);
         createToolbarAction(ToolbarMenu.EDIT, actionX + 112, actionY, 42, "+Fx", b -> state.addEffect(), false);
         createToolbarAction(ToolbarMenu.EDIT, actionX + 158, actionY, 48, "+BPM", b -> state.addBpm(), false);
         createToolbarAction(ToolbarMenu.EDIT, actionX + 210, actionY, 44, "Del", b -> deleteCurrentSelection(), false);
-        createToolbarAction(ToolbarMenu.EDIT, actionX + 258, actionY, 48, "Copy", b -> copySelectedNotesToClipboard(), false);
-        createToolbarAction(ToolbarMenu.EDIT, actionX + 310, actionY, 40, "Cut", b -> cutSelectedNotesToClipboard(), false);
-        createToolbarAction(ToolbarMenu.EDIT, actionX + 354, actionY, 52, "Paste", b -> pasteClipboardNotes(), false);
-        createToolbarAction(ToolbarMenu.EDIT, actionX + 410, actionY, 48, "Undo", b -> undoEditorChange(), false);
-        createToolbarAction(ToolbarMenu.EDIT, actionX + 462, actionY, 48, "Redo", b -> redoEditorChange(), false);
-        createToolbarAction(ToolbarMenu.EDIT, actionX + 514, actionY, 44, "Play", b -> togglePlaybackFromToolbar(), false);
-        createToolbarAction(ToolbarMenu.EDIT, actionX + 562, actionY, 44, "Stop", b -> stopPlaybackFromToolbar(), false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 258, actionY, 48, "Group", b -> groupSelectedObjects(), false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 310, actionY, 48, "Copy", b -> {
+            if (!currentSelectedEffects().isEmpty()) copySelectedEffectsToClipboard(); else copySelectedNotesToClipboard();
+        }, false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 362, actionY, 40, "Cut", b -> {
+            if (!currentSelectedEffects().isEmpty()) cutSelectedEffectsToClipboard(); else cutSelectedNotesToClipboard();
+        }, false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 406, actionY, 52, "Paste", b -> {
+            if (effectClipboard != null && !effectClipboard.entries().isEmpty() && (noteClipboard == null || noteClipboard.entries().isEmpty() || !currentSelectedEffects().isEmpty())) {
+                pasteClipboardEffects();
+            } else {
+                pasteClipboardNotes();
+            }
+        }, false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 462, actionY, 48, "Undo", b -> undoEditorChange(), false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 514, actionY, 48, "Redo", b -> redoEditorChange(), false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 566, actionY, 44, "Play", b -> togglePlaybackFromToolbar(), false);
+        createToolbarAction(ToolbarMenu.EDIT, actionX + 614, actionY, 44, "Stop", b -> stopPlaybackFromToolbar(), false);
 
         createToolbarAction(ToolbarMenu.OPTIONS, actionX, actionY, 48, "Song", b -> selectSong(), false);
         createToolbarAction(ToolbarMenu.OPTIONS, actionX + 52, actionY, 48, "Meta", b -> selectMeta(), false);
@@ -1186,8 +1430,14 @@ public class ChartEditorScreen extends Screen {
         createToolbarAction(ToolbarMenu.OPTIONS, actionX + 284, actionY, 46, "NoOut", b -> state.clearPlaybackEndBeat(), false);
         createToolbarAction(ToolbarMenu.OPTIONS, actionX + 334, actionY, 52, "Range", b -> state.playPreviewRange(), false);
         createToolbarAction(ToolbarMenu.OPTIONS, actionX + 390, actionY, 54, "1Track", b -> state.toggleShowOnlySelectedTrack(), false);
-        createToolbarAction(ToolbarMenu.OPTIONS, actionX + 448, actionY, 54, "Auto", b -> toggleWorldAutoPlay(), true);
-        createToolbarAction(ToolbarMenu.OPTIONS, actionX + 506, actionY, 54, "Check", b -> runCompatibilityCheck(), false);
+        createToolbarAction(ToolbarMenu.OPTIONS, actionX + 448, actionY, 54, "Check", b -> runCompatibilityCheck(), false);
+
+        createToolbarAction(ToolbarMenu.PREVIEW, actionX, actionY, 58, "Chart", b -> uploadServerPreview(PendingPreviewAction.LOAD_ONLY), false);
+        createToolbarAction(ToolbarMenu.PREVIEW, actionX + 62, actionY, 58, "Schem", b -> uploadPreviewSchematic(), false);
+        createToolbarAction(ToolbarMenu.PREVIEW, actionX + 124, actionY, 58, "Audio", b -> uploadPreviewAudio(), false);
+        createToolbarAction(ToolbarMenu.PREVIEW, actionX + 186, actionY, 48, "Play", b -> startWorldPreviewFromEditor(PendingPreviewAction.START), false);
+        createToolbarAction(ToolbarMenu.PREVIEW, actionX + 238, actionY, 58, "Restart", b -> startWorldPreviewFromEditor(PendingPreviewAction.RESTART), false);
+        createToolbarAction(ToolbarMenu.PREVIEW, actionX + 300, actionY, 48, "Stop", b -> stopServerPreview(), false);
 
         updateToolbarButtons();
     }
@@ -1238,6 +1488,94 @@ public class ChartEditorScreen extends Screen {
         smoothingCancelButton = addDrawableChild(ButtonWidget.builder(Text.literal("Cancel"), b -> closeSmoothingPopup())
                 .dimensions(popupX + 264, popupY + 174, 78, 20).build());
         setSmoothingPopupWidgetsVisible(false);
+        createGroupNamePopupWidgets();
+    }
+
+    private void createGroupNamePopupWidgets() {
+        int popupX = groupNamePopupX();
+        int popupY = groupNamePopupY();
+        groupNameField = addDrawableChild(new TextFieldWidget(textRenderer, popupX + 10, popupY + 22, GROUP_NAME_POPUP_WIDTH - 20, 18, Text.literal("Group Name")));
+        groupNameField.setMaxLength(64);
+        groupNameField.setText("Group");
+        groupNameApplyButton = addDrawableChild(ButtonWidget.builder(Text.literal("OK"), b -> applyGroupNameFromPopup())
+                .dimensions(popupX + 10, popupY + 46, 90, 20).build());
+        groupNameCancelButton = addDrawableChild(ButtonWidget.builder(Text.literal("Cancel"), b -> closeGroupNamePopup())
+                .dimensions(popupX + GROUP_NAME_POPUP_WIDTH - 100, popupY + 46, 90, 20).build());
+        setGroupNamePopupWidgetsVisible(false);
+    }
+
+    private void setGroupNamePopupWidgetsVisible(boolean visible) {
+        if (groupNameField == null) {
+            return;
+        }
+        groupNameField.visible = visible;
+        groupNameField.active = visible;
+        groupNameApplyButton.visible = visible;
+        groupNameApplyButton.active = visible;
+        groupNameCancelButton.visible = visible;
+        groupNameCancelButton.active = visible;
+        if (visible) {
+            groupNameField.setFocused(true);
+        } else {
+            groupNameField.setFocused(false);
+        }
+    }
+
+    private void positionGroupNamePopupWidgets() {
+        int popupX = groupNamePopupX();
+        int popupY = groupNamePopupY();
+        groupNameField.setPosition(popupX + 10, popupY + 22);
+        groupNameApplyButton.setPosition(popupX + 10, popupY + 46);
+        groupNameCancelButton.setPosition(popupX + GROUP_NAME_POPUP_WIDTH - 100, popupY + 46);
+    }
+
+    private int groupNamePopupX() {
+        return (width - GROUP_NAME_POPUP_WIDTH) / 2;
+    }
+
+    private int groupNamePopupY() {
+        return (height - GROUP_NAME_POPUP_HEIGHT) / 2;
+    }
+
+    private void openGroupNamePopup() {
+        groupNamePopupOpen = true;
+        groupNameField.setText("Group");
+        setGroupNamePopupWidgetsVisible(true);
+        positionGroupNamePopupWidgets();
+    }
+
+    private void closeGroupNamePopup() {
+        groupNamePopupOpen = false;
+        setGroupNamePopupWidgetsVisible(false);
+    }
+
+    private void applyGroupNameFromPopup() {
+        String name = groupNameField.getText().trim();
+        if (name.isBlank()) {
+            name = "Group";
+        }
+        List<SelectedNote> notes = currentSelectedNotes();
+        List<SelectedEffect> effects = currentSelectedEffects();
+        if (!effects.isEmpty()) {
+            List<EffectData> groupEffects = new ArrayList<>();
+            for (SelectedEffect selectedEffect : effects) {
+                groupEffects.add(selectedEffect.effect());
+            }
+            state.editorDraft().createEffectGroup(name, groupEffects);
+            state.setStatus("Created effect group '" + name + "' with " + groupEffects.size() + " clip(s)");
+        } else if (!notes.isEmpty()) {
+            List<EditorDraft.NoteGroupEntry> groupNotes = new ArrayList<>();
+            for (SelectedNote selectedNote : notes) {
+                groupNotes.add(new EditorDraft.NoteGroupEntry(
+                        selectedNote.track().id(),
+                        selectedNote.note().beat(),
+                        selectedNote.note().noteType()
+                ));
+            }
+            state.editorDraft().createNoteGroup(name, groupNotes);
+            state.setStatus("Created note group '" + name + "' with " + groupNotes.size() + " note(s)");
+        }
+        closeGroupNamePopup();
     }
 
     private void setSmoothingPopupWidgetsVisible(boolean visible) {
@@ -1351,6 +1689,7 @@ public class ChartEditorScreen extends Screen {
         effectFields.add(field(rightX, fieldWidth, "Arena / Target"));
         effectFields.add(field(rightX, fieldWidth, "Mode / State"));
         effectFields.add(field(rightX, fieldWidth, "Extra(KV optional)"));
+        effectFields.add(field(rightX, fieldWidth, "Duration(beats)"));
 
         applyInputHints();
 
@@ -1361,6 +1700,14 @@ public class ChartEditorScreen extends Screen {
                 .dimensions(rightX, height - 42, 86, 18).build());
         resetButton = addDrawableChild(ButtonWidget.builder(Text.literal("Reset"), b -> populateFieldsFromSelection())
                 .dimensions(rightX + 92, height - 42, 86, 18).build());
+        quickNoteTypeButton = addDrawableChild(ButtonWidget.builder(Text.literal("Type"), b -> cycleSelectedNoteType())
+                .dimensions(rightX + 184, height - 42, 54, 18).build());
+        quickNoteTrackPrevButton = addDrawableChild(ButtonWidget.builder(Text.literal("Track -"), b -> moveSelectedNoteTrack(-1))
+                .dimensions(rightX + 242, height - 42, 62, 18).build());
+        quickNoteTrackNextButton = addDrawableChild(ButtonWidget.builder(Text.literal("Track +"), b -> moveSelectedNoteTrack(1))
+                .dimensions(rightX + 308, height - 42, 62, 18).build());
+        quickEffectTypeButton = addDrawableChild(ButtonWidget.builder(Text.literal("Fx Type"), b -> cycleSelectedEffectType())
+                .dimensions(rightX + 184, height - 42, 78, 18).build());
         easingPopupSearchField = addDrawableChild(new TextFieldWidget(textRenderer, rightX, 0, 188, 18, Text.literal("Search easing")));
         easingPopupSearchField.setMaxLength(64);
         easingPopupSearchField.visible = false;
@@ -1481,6 +1828,7 @@ public class ChartEditorScreen extends Screen {
         setFieldSection(effectFields, 8, 8, "Rotation");
         setFieldSection(effectFields, 9, 10, "Target");
         setFieldSection(effectFields, 11, 11, "Advanced");
+        setFieldSection(effectFields, 12, 12, "Timing");
 
         setFieldSection(bpmFields, 0, 1, "Timing");
     }
@@ -1530,9 +1878,48 @@ public class ChartEditorScreen extends Screen {
             }
         }
         currentY = layoutTrackEventEditors(panelX, currentY);
-        applyButton.setPosition(panelX, layout.topY() + layout.panelHeight() - 34);
-        resetButton.setPosition(panelX + 92, height - 42);
-        resetButton.setPosition(panelX + 92, layout.topY() + layout.panelHeight() - 34);
+        int footerY = layout.topY() + layout.panelHeight() - 34;
+        int footerGap = 6;
+        int footerButtonWidth = (rightPanelInnerWidth() - footerGap) / 2;
+        applyButton.setPosition(panelX, footerY);
+        applyButton.setWidth(footerButtonWidth);
+        resetButton.setPosition(panelX + footerButtonWidth + footerGap, footerY);
+        resetButton.setWidth(footerButtonWidth);
+        layoutQuickInspectorButtons(panelX, footerY - 22);
+    }
+
+    private void layoutQuickInspectorButtons(int panelX, int buttonY) {
+        int gap = 6;
+        int innerWidth = rightPanelInnerWidth();
+        int typeWidth = Math.min(62, Math.max(46, innerWidth / 4));
+        int trackButtonWidth = Math.max(46, (innerWidth - typeWidth - gap * 2) / 2);
+        quickNoteTypeButton.setPosition(panelX, buttonY);
+        quickNoteTypeButton.setWidth(typeWidth);
+        quickNoteTrackPrevButton.setPosition(panelX + typeWidth + gap, buttonY);
+        quickNoteTrackPrevButton.setWidth(trackButtonWidth);
+        quickNoteTrackNextButton.setPosition(panelX + typeWidth + gap + trackButtonWidth + gap, buttonY);
+        quickNoteTrackNextButton.setWidth(Math.max(46, innerWidth - typeWidth - trackButtonWidth - gap * 2));
+        quickEffectTypeButton.setPosition(panelX, buttonY);
+        quickEffectTypeButton.setWidth(innerWidth);
+
+        boolean noteSelected = state.selection().kind() == EditorSelection.Kind.NOTE && state.selection().note() != null;
+        boolean effectSelected = state.selection().kind() == EditorSelection.Kind.EFFECT && state.selection().effect() != null;
+        setQuickButtonVisible(quickNoteTypeButton, noteSelected);
+        setQuickButtonVisible(quickNoteTrackPrevButton, noteSelected);
+        setQuickButtonVisible(quickNoteTrackNextButton, noteSelected);
+        setQuickButtonVisible(quickEffectTypeButton, effectSelected);
+
+        if (noteSelected) {
+            quickNoteTypeButton.setMessage(Text.literal(shortNoteLabel(state.selection().note().noteType())));
+        }
+        if (effectSelected) {
+            quickEffectTypeButton.setMessage(Text.literal(shortEffectLabel(state.selection().effect().effectType())));
+        }
+    }
+
+    private void setQuickButtonVisible(ButtonWidget button, boolean visible) {
+        button.visible = visible;
+        button.active = visible;
     }
 
     private void populateFieldsFromSelection() {
@@ -1616,6 +2003,13 @@ public class ChartEditorScreen extends Screen {
             set(effectFields, 9, firstProperty(properties, "arena", "target", "weather", "time"));
             set(effectFields, 10, firstProperty(properties, "mode", "state", "type", "action"));
             set(effectFields, 11, serializeExtraProperties(filterExtraEffectProperties(properties)));
+            long durationMs = properties.has("duration") ? properties.get("duration").getAsLong() : 0L;
+            if (durationMs > 0) {
+                double endBeat = state.timing().calcBeat(state.timing().beatToMillis(effect.beat()) + durationMs);
+                set(effectFields, 12, format(endBeat - effect.beat()));
+            } else {
+                set(effectFields, 12, "");
+            }
         }
 
         if (state.selection().bpm() != null) {
@@ -1625,7 +2019,7 @@ public class ChartEditorScreen extends Screen {
         }
     }
 
-    private void applyFieldsToSelection() {
+    private boolean applyFieldsToSelection() {
         try {
             switch (state.selection().kind()) {
                 case SONG -> applySongFields();
@@ -1639,9 +2033,147 @@ public class ChartEditorScreen extends Screen {
             state.markDirty();
             state.setStatus("Applied changes");
             populateFieldsFromSelection();
+            return true;
         } catch (RuntimeException exception) {
             state.setStatus("Apply failed: " + exception.getMessage());
+            return false;
         }
+    }
+
+    private void uploadServerPreview(PendingPreviewAction action) {
+        PreviewClient previewClient = RmcChartClient.getPreviewClient();
+        if (!previewClient.isReady()) {
+            openWorldPreviewOnReady = false;
+            state.setStatus("Preview server not ready: " + previewClient.handshakeMessage());
+            return;
+        }
+        if (!applyFieldsToSelection()) {
+            openWorldPreviewOnReady = false;
+            return;
+        }
+        try {
+            ChartEditorState.SerializedPreviewChart payload = state.serializeCurrentChart();
+            pendingPreviewAction = action;
+            pendingServerPreviewBeat = state.playheadBeat();
+            state.markPreviewUploadStarted();
+            previewClient.sendChartLoad(payload.manifestJson(), payload.levelJson());
+            state.setStatus(action == PendingPreviewAction.LOAD_ONLY ? "Uploading chart to preview server" : "Uploading chart and starting server preview");
+        } catch (RuntimeException exception) {
+            pendingPreviewAction = PendingPreviewAction.NONE;
+            pendingServerPreviewBeat = Double.NaN;
+            openWorldPreviewOnReady = false;
+            state.markPreviewUploadFailed();
+            state.setStatus("Preview upload failed: " + exception.getMessage());
+        }
+    }
+
+    private void startWorldPreviewFromEditor(PendingPreviewAction action) {
+        openWorldPreviewOnReady = true;
+        uploadServerPreview(action);
+    }
+
+    private void stopServerPreview() {
+        PreviewClient previewClient = RmcChartClient.getPreviewClient();
+        if (!previewClient.isReady()) {
+            state.stopServerPreviewAudio("Preview server not ready: " + previewClient.handshakeMessage());
+            return;
+        }
+        previewClient.sendPreviewStop();
+        pendingPreviewAction = PendingPreviewAction.NONE;
+        pendingServerPreviewBeat = Double.NaN;
+        openWorldPreviewOnReady = false;
+        state.stopServerPreviewAudio("Server preview stop requested");
+    }
+
+    private void handleServerPreviewEvent(PreviewClient.PreviewEvent event) {
+        switch (event.type()) {
+            case HELLO_ACK -> state.setStatus(event.ok()
+                    ? "Preview server ready. You can edit now. Default schematic: " + event.defaultSchematicName()
+                    : "Preview handshake rejected: " + event.error());
+            case CHART_LOAD_ACK -> handleServerPreviewLoadAck(event);
+            case PREVIEW_READY -> {
+                double beat = Double.isFinite(pendingServerPreviewBeat) ? pendingServerPreviewBeat : state.playheadBeat();
+                state.startServerPreviewAudio(beat);
+                pendingServerPreviewBeat = Double.NaN;
+                state.setStatus("Server preview ready; local audio started @ " + format(beat));
+                if (openWorldPreviewOnReady && client != null && client.world != null) {
+                    openWorldPreviewOnReady = false;
+                    RmcChartClient.enterWorldPreviewFromEditor();
+                    client.setScreen(null);
+                }
+            }
+            case PREVIEW_STOPPED -> state.stopServerPreviewAudio("Server preview stopped");
+            case FILE_UPLOAD_ACK -> {
+                if (event.ok()) {
+                    state.markPreviewAssetUploaded(event.fileType());
+                } else {
+                    state.markPreviewUploadFailed();
+                }
+                state.setStatus((event.ok() ? "Uploaded " : "Upload rejected ")
+                        + event.fileType() + ": " + event.error());
+            }
+            case ERROR -> {
+                pendingPreviewAction = PendingPreviewAction.NONE;
+                pendingServerPreviewBeat = Double.NaN;
+                openWorldPreviewOnReady = false;
+                state.markPreviewUploadFailed();
+                state.stopServerPreviewAudio("Server preview error: " + event.error());
+            }
+        }
+    }
+
+    private void uploadPreviewSchematic() {
+        PreviewClient previewClient = RmcChartClient.getPreviewClient();
+        if (!previewClient.isReady()) {
+            state.setStatus("Preview server not ready: " + previewClient.handshakeMessage());
+            return;
+        }
+        Path schematic = state.project().projectPath().resolve(cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.DEFAULT_SCHEMATIC_NAME);
+        if (!Files.isRegularFile(schematic)) {
+            state.setStatus("No " + cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.DEFAULT_SCHEMATIC_NAME + " in project folder; server default will be used.");
+            return;
+        }
+        previewClient.sendFileUpload(schematic, cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.FILE_TYPE_SCHEMATIC);
+        state.setStatus("Uploading schematic: " + schematic.getFileName());
+    }
+
+    private void uploadPreviewAudio() {
+        PreviewClient previewClient = RmcChartClient.getPreviewClient();
+        if (!previewClient.isReady()) {
+            state.setStatus("Preview server not ready: " + previewClient.handshakeMessage());
+            return;
+        }
+        Path audio = state.audioPath();
+        if (audio == null || !Files.isRegularFile(audio)) {
+            state.setStatus("No local audio file loaded for upload");
+            return;
+        }
+        previewClient.sendFileUpload(audio, cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.FILE_TYPE_AUDIO);
+        state.setStatus("Uploading audio cache: " + audio.getFileName());
+    }
+
+    private void handleServerPreviewLoadAck(PreviewClient.PreviewEvent event) {
+        if (!event.ok()) {
+            pendingPreviewAction = PendingPreviewAction.NONE;
+            pendingServerPreviewBeat = Double.NaN;
+            openWorldPreviewOnReady = false;
+            state.markPreviewUploadFailed();
+            state.setStatus("Preview upload rejected: " + event.error());
+            return;
+        }
+        state.markPreviewChartUploaded();
+        double beat = Double.isFinite(pendingServerPreviewBeat) ? pendingServerPreviewBeat : state.playheadBeat();
+        if (pendingPreviewAction == PendingPreviewAction.START) {
+            RmcChartClient.getPreviewClient().sendPreviewStart(beat);
+            state.setStatus("Preview uploaded; starting server visuals @ " + format(beat));
+        } else if (pendingPreviewAction == PendingPreviewAction.RESTART) {
+            RmcChartClient.getPreviewClient().sendPreviewRestart(beat);
+            state.setStatus("Preview uploaded; restarting server visuals @ " + format(beat));
+        } else {
+            pendingServerPreviewBeat = Double.NaN;
+            state.setStatus("Preview chart uploaded");
+        }
+        pendingPreviewAction = PendingPreviewAction.NONE;
     }
 
     private void applySongFields() {
@@ -1772,6 +2304,16 @@ public class ChartEditorScreen extends Screen {
             }
         }
 
+        String durationStr = get(effectFields, 12);
+        if (!durationStr.isBlank()) {
+            double durationBeats = parseDouble(durationStr);
+            if (durationBeats > 0) {
+                double startMs = state.timing().beatToMillis(effect.beat());
+                double endMs = state.timing().beatToMillis(effect.beat() + durationBeats);
+                properties.addProperty("duration", (long) (endMs - startMs));
+            }
+        }
+
         String extraKv = get(effectFields, 11);
         if (!extraKv.isBlank()) {
             for (Map.Entry<String, String> entry : parseKeyValuePairs(extraKv).entrySet()) {
@@ -1794,6 +2336,16 @@ public class ChartEditorScreen extends Screen {
         context.fill(0, TOP_BAR_HEIGHT - 1, width, TOP_BAR_HEIGHT, UI_BORDER);
         context.drawText(textRenderer, Text.literal("RhythMC Chart Maker"), OUTER_PADDING, 10, UI_TEXT, false);
         context.drawText(textRenderer, Text.literal(state.project().manifest().name()), Math.max(112, width - 270), 10, UI_MUTED, false);
+        int statusPillX = Math.max(112, width - 446);
+        drawPill(context, statusPillX, 34, 88, 18, previewHandshakeLabel(), previewHandshakeColor());
+        statusPillX += 92;
+        drawPill(context, statusPillX, 34, 84, 18, projectSaveLabel(), state.projectDirty() ? UI_WARN : UI_GREEN);
+        statusPillX += 88;
+        drawPill(context, statusPillX, 34, 88, 18, previewChartLabel(), previewChartColor());
+        statusPillX += 92;
+        drawPill(context, statusPillX, 34, 86, 18, state.serverPreviewRunning() ? "Srv Live" : "Srv Idle", state.serverPreviewRunning() ? UI_GREEN : UI_DIM);
+        statusPillX += 90;
+        drawPill(context, statusPillX, 34, 86, 18, previewAssetsLabel(), previewAssetsColor());
         int pillX = Math.max(112, width - 430);
         drawPill(context, pillX, 58, 82, 18, "In " + format(state.playbackStartBeat()), UI_ACCENT);
         pillX += 86;
@@ -1828,7 +2380,55 @@ public class ChartEditorScreen extends Screen {
         if (hasSelectedNotes()) {
             return "Ctrl+Click/drag multi-select | Ctrl+3 smoothing | Alt+Arrows move";
         }
-        return "1/2/3/4 create notes | Ctrl+Wheel zoom | Ctrl+A multi-select | Space play";
+        return "Ctrl+N new | Ctrl+O projects | 1/2/3/4 create | Ctrl+A multi-select | Space play";
+    }
+
+    private String previewHandshakeLabel() {
+        return RmcChartClient.getPreviewClient().isReady() ? "Server Ready" : "Server Wait";
+    }
+
+    private int previewHandshakeColor() {
+        return RmcChartClient.getPreviewClient().isReady() ? UI_GREEN : UI_WARN;
+    }
+
+    private String projectSaveLabel() {
+        return state.projectDirty() ? "Unsaved" : "Saved";
+    }
+
+    private String previewChartLabel() {
+        if (state.previewUploading()) {
+            return "Uploading";
+        }
+        if (state.previewChartDirty()) {
+            return "Chart Dirty";
+        }
+        if (state.previewChartUploaded()) {
+            return "Chart Sent";
+        }
+        return "Chart Idle";
+    }
+
+    private int previewChartColor() {
+        if (state.previewUploading()) {
+            return UI_ACCENT;
+        }
+        if (state.previewChartDirty()) {
+            return UI_WARN;
+        }
+        if (state.previewChartUploaded()) {
+            return UI_GREEN;
+        }
+        return UI_DIM;
+    }
+
+    private String previewAssetsLabel() {
+        String schematic = state.previewSchematicUploaded() ? "S" : "-";
+        String audio = state.previewAudioUploaded() ? "A" : "-";
+        return "Assets " + schematic + audio;
+    }
+
+    private int previewAssetsColor() {
+        return state.previewAudioUploaded() || state.previewSchematicUploaded() ? UI_ACCENT : UI_DIM;
     }
 
     private void drawSmoothingPopupBackground(DrawContext context) {
@@ -1859,6 +2459,26 @@ public class ChartEditorScreen extends Screen {
         drawTrimmedText(context, "Fill creates notes on the selected track's 1/x grid between anchors.", popupX + 18, popupY + 138, SMOOTHING_POPUP_WIDTH - 36, UI_DIM);
     }
 
+    private void drawGroupNamePopupBackground(DrawContext context) {
+        if (!groupNamePopupOpen) {
+            return;
+        }
+        int popupX = groupNamePopupX();
+        int popupY = groupNamePopupY();
+        context.fill(0, 0, width, height, 0x99000000);
+        context.fill(popupX, popupY, popupX + GROUP_NAME_POPUP_WIDTH, popupY + GROUP_NAME_POPUP_HEIGHT, 0xF01A222A);
+        drawOutline(context, popupX, popupY, GROUP_NAME_POPUP_WIDTH, GROUP_NAME_POPUP_HEIGHT, UI_ACCENT);
+    }
+
+    private void drawGroupNamePopupText(DrawContext context) {
+        if (!groupNamePopupOpen) {
+            return;
+        }
+        int popupX = groupNamePopupX();
+        int popupY = groupNamePopupY();
+        context.drawText(textRenderer, Text.literal("Group Name"), popupX + 10, popupY + 8, UI_TEXT, false);
+    }
+
     private int smoothingPopupX() {
         return Math.max(10, width / 2 - SMOOTHING_POPUP_WIDTH / 2);
     }
@@ -1880,11 +2500,13 @@ public class ChartEditorScreen extends Screen {
         context.enableScissor(x, y, x + width, y + height);
         context.drawText(textRenderer, Text.literal("Scene Map"), x + 10, y + 9, UI_TEXT, false);
         context.drawText(textRenderer, Text.literal("Beat " + format(state.playheadBeat())), x + 88, y + 9, UI_MUTED, false);
+        drawTrimmedText(context, "Drag selected note/effect for X/Y", x + 10, y + 18, width - 20, UI_DIM);
 
         int mapX = x + 10;
         int mapY = y + 28;
         int mapSize = width - 20;
         drawCurrentFrameMap(context, mapX, mapY, mapSize, mapSize);
+        drawCurrentFrameMapEditorOverlay(context, mapX, mapY, mapSize, mapSize);
 
         int rowY = mapY + mapSize + 12;
         context.drawText(textRenderer, Text.literal("Tracks"), x + 10, rowY, UI_TEXT, false);
@@ -1962,6 +2584,44 @@ public class ChartEditorScreen extends Screen {
         context.disableScissor();
     }
 
+    private void drawCurrentFrameMapEditorOverlay(DrawContext context, int x, int y, int width, int height) {
+        SceneMapOverlayUi.Model overlayModel = buildSceneMapOverlayModel(x, y, width, height);
+        if (overlayModel == null) {
+            return;
+        }
+        SceneMapOverlayUi.draw(context, textRenderer, overlayModel, 0xC8161C24, UI_BORDER_SOFT, UI_TEXT, UI_DIM);
+    }
+
+    private SceneMapOverlayUi.Model buildSceneMapOverlayModel(int x, int y, int width, int height) {
+        if (state.selection().note() == null && state.selection().effect() == null) {
+            return null;
+        }
+        int overlayX = x + 4;
+        int overlayY = y + height - MAP_OVERLAY_HEIGHT;
+        int overlayWidth = width - 8;
+        int overlayHeight = MAP_OVERLAY_HEIGHT - 4;
+        int startX = overlayX + overlayWidth - (MAP_OVERLAY_BUTTON_WIDTH + 6) * 3 - 8;
+        List<SceneMapOverlayUi.Button> buttons = new ArrayList<>();
+        buttons.add(new SceneMapOverlayUi.Button("Z-", startX, overlayY + 17, MAP_OVERLAY_BUTTON_WIDTH, 16));
+        buttons.add(new SceneMapOverlayUi.Button("Z+", startX + MAP_OVERLAY_BUTTON_WIDTH + 6, overlayY + 17, MAP_OVERLAY_BUTTON_WIDTH, 16));
+        buttons.add(new SceneMapOverlayUi.Button("Center", startX + (MAP_OVERLAY_BUTTON_WIDTH + 6) * 2, overlayY + 17, MAP_OVERLAY_BUTTON_WIDTH, 16));
+
+        if (state.selection().note() != null) {
+            NoteData note = state.selection().note();
+            String title = shortNoteLabel(note.noteType()) + "  X " + format(note.pos().x()) + "  Y " + format(note.pos().y()) + "  Z " + format(note.pos().z());
+            String detail = note.noteType() == NoteType.HOLD ? "HOLD keeps fixed Z depth; drag map for X/Y." : "Use Scene Map drag for X/Y, buttons for quick depth/center.";
+            if (note.noteType() == NoteType.HOLD) {
+                buttons = List.of(buttons.get(2));
+            }
+            return new SceneMapOverlayUi.Model(overlayX, overlayY, overlayWidth, overlayHeight, title, detail, buttons);
+        }
+
+        EffectData effect = state.selection().effect();
+        JsonObject properties = effect == null || effect.properties() == null ? new JsonObject() : effect.properties();
+        String title = shortEffectLabel(effect.effectType()) + "  X " + format(getDouble(properties, "x", 0.0)) + "  Y " + format(getDouble(properties, "y", 0.0)) + "  Z " + format(getDouble(properties, "z", 0.0));
+        return new SceneMapOverlayUi.Model(overlayX, overlayY, overlayWidth, overlayHeight, title, "Use Scene Map drag for X/Y, buttons for quick depth/center.", buttons);
+    }
+
     private boolean handleCurrentFrameMapClick(double mouseX, double mouseY, int x, int y, int width, int height) {
         MapSelection best = null;
         for (MapSelection candidate : collectCurrentFrameMapSelections(x, y, width, height)) {
@@ -1974,13 +2634,78 @@ public class ChartEditorScreen extends Screen {
             return false;
         }
         if (best.kind == EditorSelection.Kind.NOTE) {
+            updateNoteSelectionFromClick(new SelectedNote(best.track, best.note), isControlDown());
             state.setSelection(EditorSelection.note(best.track, best.note));
+            initializeCurrentFrameMapNoteDrag(mouseX, mouseY);
+            dragMode = DragMode.MAP_NOTE;
             state.setStatus("Selected note from current-frame map");
         } else if (best.kind == EditorSelection.Kind.EFFECT) {
+            selectedNotes.clear();
+            selectedEventClips.clear();
             state.setSelection(EditorSelection.effect(best.effect));
+            initializeCurrentFrameMapEffectDrag(mouseX, mouseY, best.effect);
+            dragMode = DragMode.MAP_EFFECT;
             state.setStatus("Selected effect from current-frame map");
         }
         return true;
+    }
+
+    private void initializeCurrentFrameMapNoteDrag(double mouseX, double mouseY) {
+        mapNoteDragOrigins.clear();
+        mapEffectDragOrigins.clear();
+        if (selectedNotes.isEmpty() && state.selection().track() != null && state.selection().note() != null) {
+            selectedNotes.add(new SelectedNote(state.selection().track(), state.selection().note()));
+        }
+        for (SelectedNote selectedNote : selectedNotes) {
+            mapNoteDragOrigins.put(selectedNote, selectedNote.note().pos().copy());
+        }
+        mapDragAnchorMouseX = mouseX;
+        mapDragAnchorMouseY = mouseY;
+    }
+
+    private void initializeCurrentFrameMapEffectDrag(double mouseX, double mouseY, EffectData effect) {
+        mapNoteDragOrigins.clear();
+        mapEffectDragOrigins.clear();
+        JsonObject properties = effect.properties() == null ? new JsonObject() : effect.properties();
+        mapEffectDragOrigins.put(effect, new Vec3Data(
+                getDouble(properties, "x", 0.0),
+                getDouble(properties, "y", 0.0),
+                getDouble(properties, "z", 0.0)
+        ));
+        mapDragAnchorMouseX = mouseX;
+        mapDragAnchorMouseY = mouseY;
+    }
+
+    private void handleCurrentFrameMapDrag(double mouseX, double mouseY, int x, int y, int width, int height) {
+        double scale = Math.max(6.0, width / 22.0);
+        double deltaX = (mouseX - mapDragAnchorMouseX) / scale;
+        double deltaY = -(mouseY - mapDragAnchorMouseY) / scale;
+        if (dragMode == DragMode.MAP_NOTE && !mapNoteDragOrigins.isEmpty()) {
+            for (Map.Entry<SelectedNote, Vec3Data> entry : mapNoteDragOrigins.entrySet()) {
+                SelectedNote selectedNote = entry.getKey();
+                Vec3Data origin = entry.getValue();
+                selectedNote.note().pos().set(origin.x() + deltaX, origin.y() + deltaY, selectedNote.note().pos().z());
+            }
+            state.markDirty();
+            populateFieldsFromSelection();
+            state.setStatus("Map move X/Y " + format(deltaX) + ", " + format(deltaY));
+            return;
+        }
+        if (dragMode == DragMode.MAP_EFFECT && state.selection().effect() != null) {
+            EffectData effect = state.selection().effect();
+            Vec3Data origin = mapEffectDragOrigins.get(effect);
+            if (origin == null) {
+                return;
+            }
+            JsonObject properties = effect.properties() == null ? new JsonObject() : effect.properties();
+            properties.addProperty("x", origin.x() + deltaX);
+            properties.addProperty("y", origin.y() + deltaY);
+            properties.addProperty("z", origin.z());
+            effect.setProperties(properties);
+            state.markDirty();
+            populateFieldsFromSelection();
+            state.setStatus("Map move effect X/Y " + format(deltaX) + ", " + format(deltaY));
+        }
     }
 
     private List<MapSelection> collectCurrentFrameMapSelections(int x, int y, int width, int height) {
@@ -2025,79 +2750,41 @@ public class ChartEditorScreen extends Screen {
     private void drawPreviewPanel(DrawContext context, int x, int y, int width, int height) {
         context.fill(x, y, x + width, y + height, UI_PANEL);
         drawOutline(context, x, y, width, height, UI_BORDER);
-        context.drawText(textRenderer, Text.literal("Stage Preview"), x + 10, y + 9, UI_TEXT, false);
-        context.drawText(textRenderer, Text.literal(stateAudioMillis()), x + width - 76, y + 9, UI_MUTED, false);
-        if (state.showOnlySelectedTrack() && state.selectedTrack() != null) {
-            drawTrimmedText(context, "Only Track " + state.selectedTrack().id(), x + 104, y + 9, width - 192, UI_ACCENT);
-        }
-        context.enableScissor(x + 1, y + 22, x + width - 1, y + height - 1);
+        context.drawText(textRenderer, Text.literal("Game Preview"), x + 10, y + 9, UI_TEXT, false);
+        drawPreviewActionButton(context, previewShowButtonX(x, width), y + 6, 54, state.serverPreviewRunning() ? "Live" : "Play", state.serverPreviewRunning() ? UI_GREEN : UI_ACCENT);
+        drawPreviewActionButton(context, previewStopButtonX(x, width), y + 6, 44, "Stop", UI_WARN);
+        context.drawText(textRenderer, Text.literal(stateAudioMillis()), x + width - 168, y + 9, UI_MUTED, false);
 
-        int sideWidth = width >= 520 ? 150 : 0;
-        int stageX = x + 12;
-        int stageY = y + 28;
-        int stageWidth = Math.max(120, width - 24 - sideWidth);
-        int stageHeight = Math.max(76, height - 40);
-        int stageRight = stageX + stageWidth;
-        int stageBottom = stageY + stageHeight;
-        int centerX = stageX + stageWidth / 2;
-        int hitY = stageBottom - 18;
-        int horizonY = stageY + 16;
+        int contentX = x + 12;
+        int contentY = y + 34;
+        int contentWidth = width - 24;
+        int contentHeight = Math.max(64, height - 46);
+        context.fill(contentX, contentY, contentX + contentWidth, contentY + contentHeight, 0xB512171D);
+        drawOutline(context, contentX, contentY, contentWidth, contentHeight, 0x665FBCD3);
 
-        context.fill(stageX, stageY, stageRight, stageBottom, 0xD112171D);
-        drawOutline(context, stageX, stageY, stageWidth, stageHeight, 0x665FBCD3);
-        drawPreviewDepthBand(context, stageX, stageY, stageWidth, stageHeight);
-        drawLine(context, centerX, horizonY, stageX + 14, hitY, 0x334FC3F7, 1);
-        drawLine(context, centerX, horizonY, stageRight - 14, hitY, 0x334FC3F7, 1);
-        drawLine(context, centerX - 48, horizonY + 8, centerX - 92, hitY, 0x224FC3F7, 1);
-        drawLine(context, centerX + 48, horizonY + 8, centerX + 92, hitY, 0x224FC3F7, 1);
-        context.fill(stageX + 10, hitY - 1, stageRight - 10, hitY + 2, 0xAA8FE1B2);
-        drawTrimmedText(context, "Hit plane", stageX + 14, hitY + 5, 72, UI_GREEN);
-        drawTrimmedText(context, "Far", stageRight - 34, horizonY - 4, 28, UI_DIM);
-
-        double beat = state.playheadBeat();
-        int visibleNotes = 0;
-        for (TrackData track : state.visibleTracks()) {
-            ChartEvaluator.TrackState trackState = ChartEvaluator.evaluateTrack(track, beat);
-
-            int anchorX = clamp(centerX + (int) Math.round(trackState.xTransform() * 18.0), stageX + 12, stageRight - 12);
-            int anchorY = clamp(hitY - 7 - (int) Math.round(trackState.yTransform() * 10.0), stageY + 16, stageBottom - 8);
-            int anchorColor = state.selectedTrack() == track ? UI_ACCENT : 0xFFB9C8D8;
-            context.fill(anchorX - 3, anchorY - 3, anchorX + 3, anchorY + 3, anchorColor);
-            drawTrimmedText(context, "T" + track.id(), anchorX + 5, anchorY - 4, 34, anchorColor);
-
-            for (NoteData note : track.notes()) {
-                ChartEvaluator.NoteState noteState = ChartEvaluator.evaluateNote(trackState, note);
-                if (!noteState.isWithinTypeRange()) {
-                    continue;
-                }
-                double stageDis = noteState.worldZ();
-                double depth = Math.max(0.0, Math.min(1.0, (stageDis - note.noteType().zNear()) / Math.max(1.0, note.noteType().zFar() - note.noteType().zNear())));
-                double perspective = 1.0 - depth * 0.42;
-                int drawX = clamp(centerX + (int) Math.round(noteState.worldX() * 18.0 * perspective), stageX + 8, stageRight - 8);
-                int drawY = clamp(hitY - (int) Math.round(depth * (hitY - horizonY)) - (int) Math.round(noteState.worldY() * 8.0 * perspective), stageY + 8, stageBottom - 8);
-                int size = note == state.selection().note() ? 9 : Math.max(5, 9 - (int) Math.round(depth * 3.0));
-                drawPreviewNoteGlyph(context, note, drawX, drawY, size, depth);
-                visibleNotes++;
-            }
-        }
-
-        int textY = stageY + 4;
-        drawTrimmedText(context, "Audio: " + audioSummary(), stageX + 8, textY, stageWidth - 16, UI_GREEN);
-        textY += 12;
+        int textY = contentY + 12;
+        drawTrimmedText(context, "Click Play to run this chart in the Minecraft world. Press Esc during preview to return here.", contentX + 12, textY, contentWidth - 24, UI_ACCENT);
+        textY += 18;
+        drawTrimmedText(context, "Audio: " + audioSummary(), contentX + 12, textY, contentWidth - 24, UI_GREEN);
+        textY += 14;
+        drawTrimmedText(context, "Server: " + previewHandshakeLabel() + "  |  Chart: " + previewChartLabel() + "  |  " + (state.serverPreviewRunning() ? "Preview live" : "Preview idle"), contentX + 12, textY, contentWidth - 24, previewChartColor());
+        textY += 14;
         String outBeat = state.hasPlaybackEndBeat() ? format(state.playbackEndBeat()) : "--";
-        drawTrimmedText(context, "Range: " + format(state.playbackStartBeat()) + " -> " + outBeat + "  |  visible " + visibleNotes, stageX + 8, textY, stageWidth - 16, UI_ACCENT);
-        textY += 12;
-        for (String line : activeTextDisplayLines()) {
-            drawTrimmedText(context, line, stageX + 8, textY, stageWidth - 16, UI_WARN);
-            textY += 10;
-            if (textY > stageY + stageHeight - 14) {
-                break;
-            }
-        }
-        if (sideWidth > 0) {
-            drawSchematicEditorOverlay(context, x + width - 150, y + 28, 138, Math.max(74, height - 38));
-        }
-        context.disableScissor();
+        drawTrimmedText(context, "Range: " + format(state.playbackStartBeat()) + " -> " + outBeat + "  |  Playhead: " + format(state.playheadBeat()), contentX + 12, textY, contentWidth - 24, UI_MUTED);
+    }
+
+    private void drawPreviewActionButton(DrawContext context, int x, int y, int width, String label, int color) {
+        context.fill(x, y, x + width, y + 16, 0x66303A44);
+        drawOutline(context, x, y, width, 16, color);
+        context.drawCenteredTextWithShadow(textRenderer, Text.literal(label), x + width / 2, y + 4, color);
+    }
+
+    private int previewShowButtonX(int x, int width) {
+        return x + width - 106;
+    }
+
+    private int previewStopButtonX(int x, int width) {
+        return x + width - 48;
     }
 
     private void drawPreviewDepthBand(DrawContext context, int x, int y, int width, int height) {
@@ -2272,9 +2959,10 @@ public class ChartEditorScreen extends Screen {
             int tickHeight = isMeasureBeat(beat) ? TIMELINE_RULER_HEIGHT - 3 : isWholeBeat(beat) ? TIMELINE_RULER_HEIGHT - 8 : TIMELINE_RULER_HEIGHT - 12;
             int tickColor = isMeasureBeat(beat) ? 0xC4FFFFFF : isWholeBeat(beat) ? 0x88CDE3F6 : 0x44678096;
             context.fill(lineX, y + TIMELINE_RULER_HEIGHT - tickHeight, lineX + 1, y + TIMELINE_RULER_HEIGHT, tickColor);
-            if (lineX - previousLabelX > 42 && (isWholeBeat(beat) || rulerTrack != null)) {
-                String label = rulerTrack == null || isWholeBeat(beat) ? rulerBeatLabel(beat) : subdivisionLabel(beat, rulerTrack);
-                context.drawText(textRenderer, Text.literal(label), lineX + 3, y + 8, isWholeBeat(beat) ? 0xE7F4FF : 0x8EAABD, false);
+            if (lineX - previousLabelX > 32 && (isWholeBeat(beat) || rulerTrack != null)) {
+                String label = rulerTrack == null || isWholeBeat(beat) ? beatNumberLabel(beat) : subdivisionLabel(beat, rulerTrack);
+                int labelColor = isMeasureBeat(beat) ? 0xFFFFFFFF : isWholeBeat(beat) ? 0xE7F4FF : 0x8EAABD;
+                context.drawText(textRenderer, Text.literal(label), lineX + 3, y + 8, labelColor, false);
                 previousLabelX = lineX;
             }
         }
@@ -2324,16 +3012,22 @@ public class ChartEditorScreen extends Screen {
     }
 
     private double timelineGridStep() {
+        if (state.beatsPerScreen() <= 2.0) {
+            return 1.0 / 16.0;
+        }
+        if (state.beatsPerScreen() <= 4.0) {
+            return 1.0 / 8.0;
+        }
         if (state.beatsPerScreen() <= 8.0) {
-            return 0.25;
+            return 1.0 / 4.0;
         }
         if (state.beatsPerScreen() <= 16.0) {
-            return 0.5;
+            return 1.0 / 2.0;
         }
-        if (state.beatsPerScreen() <= 48.0) {
+        if (state.beatsPerScreen() <= 32.0) {
             return 1.0;
         }
-        if (state.beatsPerScreen() <= 96.0) {
+        if (state.beatsPerScreen() <= 64.0) {
             return 2.0;
         }
         return 4.0;
@@ -2362,6 +3056,11 @@ public class ChartEditorScreen extends Screen {
         int measure = Math.floorDiv(wholeBeat, 4);
         int beatInMeasure = Math.floorMod(wholeBeat, 4) + 1;
         return measure + "." + beatInMeasure;
+    }
+
+    private String beatNumberLabel(double beat) {
+        int wholeBeat = (int) Math.round(beat);
+        return Integer.toString(wholeBeat);
     }
 
     private String subdivisionLabel(double beat, TrackData track) {
@@ -2813,13 +3512,14 @@ public class ChartEditorScreen extends Screen {
             }
             editor.titleY = currentY;
             List<NumEventData> laneEvents = eventsForLane(state.selection().track(), editor.eventType());
-            editor.addButton.visible = true;
-            editor.addButton.active = true;
+            boolean titleInsideViewport = currentY >= viewportTop && currentY + 18 <= viewportBottom;
+            editor.addButton.visible = titleInsideViewport;
+            editor.addButton.active = titleInsideViewport;
             editor.addButton.setPosition(panelX + rightPanelInnerWidth() - 92, currentY - 3);
             editor.duplicateButton.visible = false;
             editor.duplicateButton.active = false;
-            editor.deleteButton.visible = true;
-            editor.deleteButton.active = !laneEvents.isEmpty();
+            editor.deleteButton.visible = titleInsideViewport;
+            editor.deleteButton.active = titleInsideViewport && !laneEvents.isEmpty();
             editor.deleteButton.setPosition(panelX + rightPanelInnerWidth() - 42, currentY - 3);
             currentY += 14;
             editor.columnsY = currentY;
@@ -2852,15 +3552,14 @@ public class ChartEditorScreen extends Screen {
             TrackData track = state.selection().track();
             int eventCount = track == null ? 0 : eventsForLane(track, editor.eventType()).size();
             context.drawText(textRenderer, Text.literal(editor.eventType().label), titleX, editor.titleY, editor.eventType().color, false);
-            String label = eventCount > 1 ? "Automation card  |  multiple saved events, Apply keeps card" : "Automation card  |  Start  End  From  To  Ease";
+            String label = AutomationCardUi.subtitle();
             context.drawText(textRenderer, Text.literal(label), titleX, editor.columnsY, eventCount > 1 ? UI_WARN : 0x7F97A8, false);
             for (int index = 0; index < editor.rows.size(); index++) {
                 TrackEventRow row = editor.rows.get(index);
                 if (!row.visible) {
                     continue;
                 }
-                context.fill(row.dragX, row.y, row.rowRight, row.y + 18, 0x18161D24);
-                context.drawText(textRenderer, Text.literal("A"), row.dragX + 4, row.y + 5, 0x8AA8BA, false);
+                AutomationCardUi.drawCardBackground(context, row.dragX, row.y, row.rowRight);
             }
         }
     }
@@ -3226,6 +3925,9 @@ public class ChartEditorScreen extends Screen {
     private boolean handleLeftPanelClick(double mouseX, double mouseY, int x, int y) {
         int mapSize = leftPanelWidth() - 16;
         if (isInside(mouseX, mouseY, x + 8, y + 32, mapSize, mapSize)) {
+            if (handleCurrentFrameMapOverlayClick(mouseX, mouseY, x + 8, y + 32, mapSize, mapSize)) {
+                return true;
+            }
             if (handleCurrentFrameMapClick(mouseX, mouseY, x + 8, y + 32, mapSize, mapSize)) {
                 return true;
             }
@@ -3243,6 +3945,114 @@ public class ChartEditorScreen extends Screen {
             rowY += 30;
         }
         return false;
+    }
+
+    private boolean handleCurrentFrameMapOverlayClick(double mouseX, double mouseY, int x, int y, int width, int height) {
+        SceneMapOverlayUi.Model overlayModel = buildSceneMapOverlayModel(x, y, width, height);
+        if (overlayModel == null) {
+            return false;
+        }
+        if (!isInside(mouseX, mouseY, overlayModel.x(), overlayModel.y(), overlayModel.width(), overlayModel.height())) {
+            return false;
+        }
+        int buttonIndex = SceneMapOverlayUi.hitTest(overlayModel, mouseX, mouseY);
+        if (buttonIndex < 0) {
+            return true;
+        }
+        if (state.selection().note() != null && state.selection().note().noteType() == NoteType.HOLD) {
+            centerSelectedMapXY();
+            return true;
+        }
+        if (buttonIndex == 0) {
+            adjustSelectedMapAxis(NoteAxis.Z, -0.25);
+        } else if (buttonIndex == 1) {
+            adjustSelectedMapAxis(NoteAxis.Z, 0.25);
+        } else {
+            centerSelectedMapXY();
+        }
+        return true;
+    }
+
+    private void adjustSelectedMapAxis(NoteAxis axis, double delta) {
+        if (state.selection().note() != null) {
+            NoteData note = state.selection().note();
+            if (axis == NoteAxis.Z && note.noteType() == NoteType.HOLD) {
+                state.setStatus("HOLD uses fixed Z depth");
+                return;
+            }
+            setNoteAxisValue(note, axis, noteAxisValue(note, axis) + delta);
+            state.markDirty();
+            populateFieldsFromSelection();
+            layoutPropertyFields();
+            state.setStatus("Note " + axis.name() + " " + format(noteAxisValue(note, axis)));
+            return;
+        }
+        if (state.selection().effect() != null) {
+            EffectData effect = state.selection().effect();
+            JsonObject properties = effect.properties() == null ? new JsonObject() : effect.properties();
+            String key = switch (axis) {
+                case X -> "x";
+                case Y -> "y";
+                case Z -> "z";
+            };
+            double next = getDouble(properties, key, 0.0) + delta;
+            properties.addProperty(key, next);
+            effect.setProperties(properties);
+            state.markDirty();
+            populateFieldsFromSelection();
+            layoutPropertyFields();
+            state.setStatus("Effect " + axis.name() + " " + format(next));
+        }
+    }
+
+    private void adjustSelectedNoteUniformScale(double delta) {
+        if (state.selection().note() == null) {
+            return;
+        }
+        NoteData note = state.selection().note();
+        double nextX = Math.max(0.1, note.scale().x() + delta);
+        double nextY = Math.max(0.1, note.scale().y() + delta);
+        double nextZ = Math.max(0.1, note.scale().z() + delta);
+        note.scale().set(nextX, nextY, nextZ);
+        state.markDirty();
+        populateFieldsFromSelection();
+        layoutPropertyFields();
+        state.setStatus("Note scale " + format(nextX) + ", " + format(nextY) + ", " + format(nextZ));
+    }
+
+    private void adjustSelectedNoteRotationZ(double delta) {
+        if (state.selection().note() == null) {
+            return;
+        }
+        NoteData note = state.selection().note();
+        note.rotation().set(note.rotation().x(), note.rotation().y(), note.rotation().z() + delta);
+        state.markDirty();
+        populateFieldsFromSelection();
+        layoutPropertyFields();
+        state.setStatus("Note RotZ " + format(note.rotation().z()));
+    }
+
+    private void centerSelectedMapXY() {
+        if (state.selection().note() != null) {
+            NoteData note = state.selection().note();
+            note.pos().set(0.0, 0.0, note.noteType() == NoteType.HOLD ? -1.0 : note.pos().z());
+            state.markDirty();
+            populateFieldsFromSelection();
+            layoutPropertyFields();
+            state.setStatus("Centered note X/Y");
+            return;
+        }
+        if (state.selection().effect() != null) {
+            EffectData effect = state.selection().effect();
+            JsonObject properties = effect.properties() == null ? new JsonObject() : effect.properties();
+            properties.addProperty("x", 0.0);
+            properties.addProperty("y", 0.0);
+            effect.setProperties(properties);
+            state.markDirty();
+            populateFieldsFromSelection();
+            layoutPropertyFields();
+            state.setStatus("Centered effect X/Y");
+        }
     }
 
     private boolean handleTrackBarClick(double mouseX, double mouseY, int x, int y, int width, int height) {
@@ -3277,6 +4087,7 @@ public class ChartEditorScreen extends Screen {
         if (mouseY < y + TIMELINE_RULER_HEIGHT) {
             if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_LEFT && isInsideTimelineZoomBar(mouseX, mouseY, contentX, contentWidth, y)) {
                 setTimelineZoomFromMouseX(mouseX, contentX, contentWidth);
+                dragMode = DragMode.TIMELINE_ZOOM;
             } else {
                 state.seekToBeat(snapBeat(screenToBeat(contentX, contentWidth, Math.max(contentX, mouseX))));
             }
@@ -3306,6 +4117,7 @@ public class ChartEditorScreen extends Screen {
             return true;
         }
         if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_RIGHT && lane.track != null && lane.type == LaneType.NOTE_AXIS && lane.noteAxis != null) {
+            beat = snapBeat(state.playheadBeat(), lane.track);
             NoteData note = state.addNote(lane.track, beat);
             activeNoteAxis = lane.noteAxis;
             setNoteAxisValue(note, lane.noteAxis, noteLaneScreenToValue(layout.top(), layout.height(), noteLaneRange(lane.track, lane.noteAxis), mouseY));
@@ -3316,11 +4128,12 @@ public class ChartEditorScreen extends Screen {
             state.markDirty();
             replaceSelectedNotes(List.of(new SelectedNote(lane.track, note)));
             populateFieldsFromSelection();
-            state.setStatus("Added " + lane.noteAxis.label + " note on TrackID " + lane.track.id() + " at beat " + format(beat));
+            state.setStatus("Added " + lane.noteAxis.label + " note on TrackID " + lane.track.id() + " at playhead " + format(beat));
             return true;
         }
         if (lane.type == LaneType.BPM) {
             selectedNotes.clear();
+            selectedEffects.clear();
             selectedEventClips.clear();
             BpmPoint bpm = findNearestBpm(contentX, contentWidth, mouseX);
             if (bpm != null) {
@@ -3331,16 +4144,33 @@ public class ChartEditorScreen extends Screen {
             }
             return true;
         }
-        if (lane.type == LaneType.EFFECTS) {
+        if (lane.type == LaneType.FX_TRACK_HEADER) {
+            if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_RIGHT) {
+                EffectData effect = state.addEffect();
+                replaceSelectedEffects(List.of(new SelectedEffect(effect)));
+                state.setSelection(EditorSelection.effect(effect));
+                populateFieldsFromSelection();
+                state.setStatus("Added effect at playhead " + format(state.playheadBeat()));
+                return true;
+            }
+            if (mouseX < x + 24) {
+                state.toggleFxTrackExpanded();
+            } else {
+                selectedNotes.clear();
+                selectedEffects.clear();
+                selectedEventClips.clear();
+                state.setSelection(EditorSelection.meta());
+            }
+            return true;
+        }
+        if (lane.type == LaneType.FX_EFFECT_CLIP && lane.effect != null) {
             selectedNotes.clear();
             selectedEventClips.clear();
-            EffectData effect = findNearestEffect(contentX, contentWidth, mouseX);
-            if (effect != null) {
-                state.setSelection(EditorSelection.effect(effect));
-                dragMode = DragMode.EFFECT;
-            } else {
-                state.seekToBeat(beat);
-            }
+            SelectedEffect selectedEffect = new SelectedEffect(lane.effect);
+            updateEffectSelectionFromClick(selectedEffect, isControlDown());
+            state.setSelection(EditorSelection.effect(lane.effect));
+            initializeEffectClipDrag(beat);
+            dragMode = DragMode.EFFECT;
             return true;
         }
         if (lane.track != null && lane.type == LaneType.TRACK_HEADER) {
@@ -3351,6 +4181,15 @@ public class ChartEditorScreen extends Screen {
             } else {
                 state.setSelection(EditorSelection.track(lane.track));
             }
+            return true;
+        }
+        if (lane.track != null && lane.type == LaneType.EVENT_GROUP_HEADER && lane.eventGroup != null) {
+            selectedNotes.clear();
+            selectedEventClips.clear();
+            state.setSelection(EditorSelection.track(lane.track));
+            state.toggleTrackEventGroupExpanded(lane.track, lane.eventGroup);
+            state.setStatus((state.isTrackEventGroupExpanded(lane.track, lane.eventGroup) ? "Expanded " : "Collapsed ")
+                    + lane.eventGroup + " lanes for TrackID " + lane.track.id());
             return true;
         }
         if (lane.track != null && lane.type == LaneType.NOTE_AXIS && lane.noteAxis != null) {
@@ -3413,12 +4252,7 @@ public class ChartEditorScreen extends Screen {
             state.setSelection(EditorSelection.track(lane.track));
             selectedEventClip = null;
             selectedEventHandle = null;
-            if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_LEFT) {
-                selectionBox = new SelectionBox((int) mouseX, (int) mouseY, (int) mouseX, (int) mouseY);
-                selectionBoxAdditive = isControlDown();
-                dragMode = DragMode.BOX_SELECT;
-            }
-            state.setStatus("Selected TrackID " + lane.track.id() + " event lane: " + lane.eventType.label);
+            state.setStatus(AutomationCardUi.timelineLaneStatus(lane.track.id(), lane.eventType.label));
             return true;
         }
         return false;
@@ -3434,7 +4268,10 @@ public class ChartEditorScreen extends Screen {
         TimelineLaneLayout hoveredLayout = mouseY >= laneBottom ? null : timelineLaneAt(layouts, mouseY);
         switch (dragMode) {
             case BPM -> state.moveSelectedBpm(beat);
-            case EFFECT -> state.moveSelectedEffect(beat);
+            case EFFECT -> {
+                double snappedBeat = snapBeat(screenToBeat(contentX, contentWidth, Math.max(contentX, mouseX)));
+                applyDraggedEffects(snappedBeat - dragAnchorBeat);
+            }
             case NOTE -> {
                 TimelineLane lane = hoveredLayout == null ? null : hoveredLayout.lane();
                 TrackData targetTrack = lane != null && lane.track != null ? lane.track : state.selection().track();
@@ -3464,18 +4301,19 @@ public class ChartEditorScreen extends Screen {
         if (client == null || client.world == null) {
             return false;
         }
-        if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_MIDDLE) {
-            pickWorldDisplay();
-            return true;
-        }
-        if (RmcChartClient.getWorldLauncher().pickLookTarget()) {
-            populateFieldsFromSelection();
-            dragMode = DragMode.WORLD_SELECTION;
-            return true;
-        }
-        if (state.selection().kind() == EditorSelection.Kind.NOTE || state.selection().kind() == EditorSelection.Kind.EFFECT) {
-            dragMode = DragMode.WORLD_SELECTION;
-            return true;
+        if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_LEFT) {
+            if (isInside(click.x(), click.y(), previewShowButtonX(x, width), y + 6, 54, 16)) {
+                if (state.serverPreviewRunning()) {
+                    stopServerPreview();
+                } else {
+                    startWorldPreviewFromEditor(PendingPreviewAction.START);
+                }
+                return true;
+            }
+            if (isInside(click.x(), click.y(), previewStopButtonX(x, width), y + 6, 44, 16)) {
+                stopServerPreview();
+                return true;
+            }
         }
         return false;
     }
@@ -3484,13 +4322,6 @@ public class ChartEditorScreen extends Screen {
         return state.level().meta().bpms().stream()
                 .min(Comparator.comparingDouble(bpm -> Math.abs(beatToScreen(x, width, bpm.beat()) - mouseX)))
                 .filter(bpm -> Math.abs(beatToScreen(x, width, bpm.beat()) - mouseX) <= 6.0)
-                .orElse(null);
-    }
-
-    private EffectData findNearestEffect(int x, int width, double mouseX) {
-        return state.level().effects().stream()
-                .min(Comparator.comparingDouble(effect -> Math.abs(beatToScreen(x, width, effect.beat()) - mouseX)))
-                .filter(effect -> Math.abs(beatToScreen(x, width, effect.beat()) - mouseX) <= 6.0)
                 .orElse(null);
     }
 
@@ -3560,16 +4391,52 @@ public class ChartEditorScreen extends Screen {
         }
     }
 
+    private void openNewProjectWizard() {
+        if (!canLeaveEditorSession()) {
+            return;
+        }
+        client.setScreen(new NewSongWizardScreen(this));
+    }
+
+    private void openProjectBrowser() {
+        if (!canLeaveEditorSession()) {
+            return;
+        }
+        client.setScreen(new ProjectBrowserScreen(this));
+    }
+
+    private void openProjectHub() {
+        if (!canLeaveEditorSession()) {
+            return;
+        }
+        client.setScreen(new ProjectHubScreen(this));
+    }
+
+    private void openRawJsonEditor() {
+        client.setScreen(new RawLevelJsonEditorScreen(state, this));
+    }
+
+    private boolean canLeaveEditorSession() {
+        if (!RmcChartClient.isEditorSessionSaved() || state.projectDirty()) {
+            state.setStatus("Save the project before leaving the editor session");
+            return false;
+        }
+        return true;
+    }
+
+    private void returnToTitle() {
+        if (!canLeaveEditorSession()) {
+            return;
+        }
+        MinecraftClient.getInstance().disconnect(new TitleScreen(), false);
+    }
+
     private void reloadAudio() {
         state.reloadAudio();
     }
 
     private void togglePlaybackFromToolbar() {
-        if (client != null && RmcChartClient.getWorldLauncher().isEditorWorldActive(client)) {
-            RmcChartClient.getWorldLauncher().toggleWorldPlayback();
-        } else {
-            state.togglePlayback();
-        }
+        state.togglePlayback();
     }
 
     private void stopPlaybackFromToolbar() {
@@ -3606,6 +4473,51 @@ public class ChartEditorScreen extends Screen {
 
     private void selectMeta() {
         state.setSelection(EditorSelection.meta());
+    }
+
+    private void cycleSelectedNoteType() {
+        if (state.selection().note() == null) {
+            return;
+        }
+        NoteData note = state.selection().note();
+        NoteType[] values = NoteType.values();
+        note.setNoteType(values[(note.noteType().ordinal() + 1) % values.length]);
+        if (note.noteType() == NoteType.HOLD) {
+            note.pos().set(note.pos().x(), note.pos().y(), -1.0);
+            note.setHoldLengthBeats(Math.max(trackGridStep(state.selection().track()), note.holdLengthBeats()));
+        } else {
+            note.setHoldLengthBeats(0.0);
+        }
+        state.markDirty();
+        populateFieldsFromSelection();
+        layoutPropertyFields();
+        state.setStatus("Note type: " + shortNoteLabel(note.noteType()));
+    }
+
+    private void moveSelectedNoteTrack(int delta) {
+        if (state.selection().track() == null || state.selection().note() == null) {
+            return;
+        }
+        int index = clamp(state.trackIndex(state.selection().track()) + delta, 0, Math.max(0, state.tracks().size() - 1));
+        TrackData targetTrack = state.tracks().get(index);
+        state.moveSelectedNote(state.selection().note().beat(), targetTrack);
+        state.markDirty();
+        populateFieldsFromSelection();
+        layoutPropertyFields();
+        state.setStatus("Moved note to Track " + targetTrack.id());
+    }
+
+    private void cycleSelectedEffectType() {
+        if (state.selection().effect() == null) {
+            return;
+        }
+        EffectData effect = state.selection().effect();
+        EffectType[] values = EffectType.values();
+        effect.setEffectType(values[(effect.effectType().ordinal() + 1) % values.length]);
+        state.markDirty();
+        populateFieldsFromSelection();
+        layoutPropertyFields();
+        state.setStatus("Effect type: " + effect.effectType().name());
     }
 
     private Path parsePath() {
@@ -3683,6 +4595,7 @@ public class ChartEditorScreen extends Screen {
                 default -> "Mode / State";
             };
             case 11 -> "Advanced Extra Fields";
+            case 12 -> "Duration (beats)";
             default -> field.label;
         };
     }
@@ -3704,16 +4617,22 @@ public class ChartEditorScreen extends Screen {
             return effectFields;
         }
         return switch (effect.effectType()) {
-            case TEXT_DISPLAY, TEXT_DISPLAY_EFFECT -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(2), effectFields.get(3), effectFields.get(4), effectFields.get(5), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(10));
+            case TEXT_DISPLAY, TEXT_DISPLAY_EFFECT -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(2), effectFields.get(3), effectFields.get(4), effectFields.get(5), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(10), effectFields.get(12));
             case TEXT_DISPLAY_REMOVE -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(2));
-            case TEXT_DISPLAY_SYNC_TRACK, TEXT_DISPLAY_DESYNC_TRACK -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(2), effectFields.get(5), effectFields.get(10));
+            case TEXT_DISPLAY_SYNC_TRACK -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(2), effectFields.get(5), effectFields.get(10), effectFields.get(12));
+            case TEXT_DISPLAY_DESYNC_TRACK -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(2), effectFields.get(5), effectFields.get(10));
             case TITLE -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(10));
             case MESSAGE -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(10));
             case GLOW_COLOR -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(4), effectFields.get(10));
             case HIDE_NOTES -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(5), effectFields.get(10));
             case ARENA -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(9), effectFields.get(10));
-            case WEATHER, TIME -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(9), effectFields.get(10));
-            case FIREWORK, HOLOGRAM, REMOVE_HOLOGRAM, EFFECT, CLEAR_EFFECT -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(9), effectFields.get(10), effectFields.get(11));
+            case TIME -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(9), effectFields.get(10), effectFields.get(12));
+            case WEATHER -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(9), effectFields.get(10));
+            case FIREWORK -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(9), effectFields.get(10), effectFields.get(11));
+            case HOLOGRAM -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(9), effectFields.get(10), effectFields.get(11), effectFields.get(12));
+            case REMOVE_HOLOGRAM -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(9), effectFields.get(10), effectFields.get(11));
+            case EFFECT -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(9), effectFields.get(10), effectFields.get(11), effectFields.get(12));
+            case CLEAR_EFFECT -> List.of(effectFields.get(0), effectFields.get(1), effectFields.get(3), effectFields.get(4), effectFields.get(6), effectFields.get(7), effectFields.get(8), effectFields.get(9), effectFields.get(10), effectFields.get(11));
         };
     }
 
@@ -3803,7 +4722,7 @@ public class ChartEditorScreen extends Screen {
             case "id", "textId", "text", "content", "title", "message", "value", "color", "glowColor",
                     "trackId", "track", "x", "y", "z", "scaleX", "scaleY", "scaleZ",
                     "rotationX", "rotationY", "rotationZ", "arena", "target", "weather", "time",
-                    "mode", "state", "type", "action" -> true;
+                    "mode", "state", "type", "action", "duration" -> true;
             default -> false;
         };
     }
@@ -3817,25 +4736,28 @@ public class ChartEditorScreen extends Screen {
 
     private List<TimelineLane> buildTimelineLanes() {
         List<TimelineLane> lanes = new ArrayList<>();
-        lanes.add(new TimelineLane(LaneType.BPM, null, null, null));
-        lanes.add(new TimelineLane(LaneType.EFFECTS, null, null, null));
+        lanes.add(new TimelineLane(LaneType.BPM, null, null, null, null, null));
         for (TrackData track : state.visibleTracks()) {
-            lanes.add(new TimelineLane(LaneType.TRACK_HEADER, track, null, null));
+            lanes.add(new TimelineLane(LaneType.TRACK_HEADER, track, null, null, null, null));
             if (!state.isTrackExpanded(track)) {
                 continue;
             }
             for (NoteAxis axis : NoteAxis.values()) {
-                lanes.add(new TimelineLane(LaneType.NOTE_AXIS, track, null, axis));
+                lanes.add(new TimelineLane(LaneType.NOTE_AXIS, track, null, null, axis, null));
             }
             for (String group : List.of("Speed", "Position", "Rotation", "Scale")) {
-                lanes.add(new TimelineLane(LaneType.EVENT_GROUP_HEADER, track, null, null, group));
+                lanes.add(new TimelineLane(LaneType.EVENT_GROUP_HEADER, track, null, null, null, group));
                 if (state.isTrackEventGroupExpanded(track, group)) {
                     for (EventLaneType eventType : eventTypesInGroup(group)) {
-                        if (!eventsForLane(track, eventType).isEmpty()) {
-                            lanes.add(new TimelineLane(LaneType.EVENTS, track, eventType, null));
-                        }
+                        lanes.add(new TimelineLane(LaneType.EVENTS, track, null, eventType, null, null));
                     }
                 }
+            }
+        }
+        lanes.add(new TimelineLane(LaneType.FX_TRACK_HEADER, null, null, null, null, null));
+        if (state.isFxTrackExpanded()) {
+            for (EffectData effect : state.level().effects()) {
+                lanes.add(new TimelineLane(LaneType.FX_EFFECT_CLIP, null, effect, null, null, null));
             }
         }
         return lanes;
@@ -3881,7 +4803,9 @@ public class ChartEditorScreen extends Screen {
 
     private int laneHeight(TimelineLane lane) {
         return switch (lane.type) {
-            case BPM, EFFECTS, EVENT_GROUP_HEADER -> BASE_ROW_HEIGHT;
+            case BPM, EVENT_GROUP_HEADER -> BASE_ROW_HEIGHT;
+            case FX_TRACK_HEADER -> FX_TRACK_HEADER_HEIGHT;
+            case FX_EFFECT_CLIP -> FX_EFFECT_CLIP_HEIGHT;
             case TRACK_HEADER -> TRACK_HEADER_HEIGHT;
             case NOTE_AXIS -> NOTE_LANE_HEIGHT;
             case EVENTS -> EVENT_LANE_HEIGHT;
@@ -3892,7 +4816,8 @@ public class ChartEditorScreen extends Screen {
         TimelineLane lane = layout.lane();
         switch (lane.type) {
             case BPM -> drawBpmLane(context, x, contentX, layout.top(), layout.height(), contentWidth);
-            case EFFECTS -> drawEffectLane(context, x, contentX, layout.top(), layout.height(), contentWidth);
+            case FX_TRACK_HEADER -> drawFxTrackHeaderLane(context, x, contentX, layout.top(), layout.height(), contentWidth);
+            case FX_EFFECT_CLIP -> drawFxEffectClipLane(context, lane.effect, x, contentX, layout.top(), layout.height(), contentWidth);
             case TRACK_HEADER -> drawTrackHeaderLane(context, lane.track, x, contentX, layout.top(), layout.height(), contentWidth);
             case NOTE_AXIS -> drawTrackNoteAxisLane(context, lane.track, lane.noteAxis, x, contentX, layout.top(), layout.height(), contentWidth);
             case EVENT_GROUP_HEADER -> drawEventGroupHeaderLane(context, lane.track, lane.eventGroup, x, contentX, layout.top(), layout.height(), contentWidth);
@@ -3929,15 +4854,126 @@ public class ChartEditorScreen extends Screen {
         context.disableScissor();
     }
 
-    private void drawEffectLane(DrawContext context, int labelX, int contentX, int rowTop, int laneHeight, int width) {
-        context.drawText(textRenderer, Text.literal("Effects"), labelX + 8, rowTop + laneHeight / 2 - 4, 0xFFD090, false);
+    private void drawFxTrackHeaderLane(DrawContext context, int labelX, int contentX, int rowTop, int laneHeight, int width) {
+        int accent = 0xAA6E4A1E;
+        context.fill(labelX, rowTop, contentX + width, rowTop + laneHeight - 1, accent);
+        context.fill(labelX + 4, rowTop + 5, labelX + 18, rowTop + 19, 0x55000000);
+        context.drawText(textRenderer, Text.literal(state.isFxTrackExpanded() ? "-" : "+"), labelX + 9, rowTop + 8, 0xFFFFFFFF, false);
+        context.drawText(textRenderer, Text.literal("FX Track"), labelX + 24, rowTop + 8, 0xFFFFD090, false);
+        context.drawText(textRenderer, Text.literal(state.level().effects().size() + " clip(s)"), contentX + 8, rowTop + 8, 0xFFD7E8F4, false);
+    }
+
+    private void drawFxEffectClipLane(DrawContext context, EffectData effect, int labelX, int contentX, int rowTop, int laneHeight, int width) {
+        if (effect == null) {
+            return;
+        }
+        boolean selected = isEffectSelected(effect);
+        String info = effectInfoLabel(effect);
+        context.drawText(textRenderer, Text.literal(info), labelX + 8, rowTop + laneHeight / 2 - 4, selected ? 0xFFFFFFFF : 0xFFFFD090, false);
         context.enableScissor(contentX + 1, rowTop, contentX + width - 1, rowTop + laneHeight);
-        for (EffectData effect : state.level().effects()) {
-            int markerX = beatToScreen(contentX, width, effect.beat());
-            context.fill(markerX - 2, rowTop + 4, markerX + 2, rowTop + laneHeight - 4, effect == state.selection().effect() ? 0xFFFFD77A : 0xFFAA7722);
-            context.drawText(textRenderer, Text.literal(shortEffectLabel(effect.effectType())), markerX + 4, rowTop + laneHeight / 2 - 4, 0xFFEBC48C, false);
+        double endBeat = effectEndBeat(effect);
+        int startX = beatToScreen(contentX, width, effect.beat());
+        int endX = beatToScreen(contentX, width, endBeat);
+        int clipLeft = Math.min(startX, endX);
+        int clipRight = Math.max(startX, endX);
+        int clipTop = rowTop + 6;
+        int clipBottom = rowTop + laneHeight - 6;
+        int fillColor = selected ? 0x66FFD77A : 0x55AA7722;
+        int edgeColor = selected ? 0xFFFFD77A : 0xFFAA7722;
+        if (clipRight > clipLeft + 1) {
+            context.fill(clipLeft, clipTop, clipRight, clipBottom, fillColor);
+            context.fill(clipLeft, clipTop, clipLeft + 2, clipBottom, edgeColor);
+            context.fill(clipRight - 2, clipTop, clipRight, clipBottom, edgeColor);
+            context.fill(clipLeft, clipTop, clipRight, clipTop + 1, edgeColor);
+            context.fill(clipLeft, clipBottom - 1, clipRight, clipBottom, edgeColor);
+            String clipLabel = shortEffectLabel(effect.effectType()) + " " + effectClipText(effect);
+            int labelWidth = textRenderer.getWidth(clipLabel);
+            if (clipRight - clipLeft > labelWidth + 8) {
+                context.drawText(textRenderer, Text.literal(clipLabel), clipLeft + 4, rowTop + laneHeight / 2 - 4, 0xFFEBC48C, false);
+            }
+        } else {
+            context.fill(startX - 2, clipTop, startX + 2, clipBottom, edgeColor);
+        }
+        Set<String> groups = effectGroupNames(effect);
+        if (!groups.isEmpty()) {
+            int groupColor = groupNameColor(groups.iterator().next());
+            context.fill(clipLeft, clipTop - 2, clipRight, clipTop, groupColor);
+            String groupLabel = trimToWidth(groups.iterator().next(), Math.max(20, clipRight - clipLeft - 4));
+            if (clipRight - clipLeft > textRenderer.getWidth(groupLabel) + 4) {
+                context.drawText(textRenderer, Text.literal(groupLabel), clipLeft + 2, clipTop - 10, groupColor, false);
+            }
         }
         context.disableScissor();
+    }
+
+    private double effectEndBeat(EffectData effect) {
+        if (effect == null || effect.properties() == null) {
+            return effect == null ? 0.0 : effect.beat();
+        }
+        long durationMs = effect.properties().has("duration") ? effect.properties().get("duration").getAsLong() : 0L;
+        if (durationMs > 0L) {
+            double startMs = state.timing().beatToMillis(effect.beat());
+            return state.timing().calcBeat((long) (startMs + durationMs));
+        }
+        return effect.beat() + 1.0;
+    }
+
+    private String effectInfoLabel(EffectData effect) {
+        return shortEffectLabel(effect.effectType()) + " @ " + format(effect.beat());
+    }
+
+    private Set<String> effectGroupNames(EffectData effect) {
+        return state.editorDraft().effectGroupNamesContaining(effect);
+    }
+
+    private Set<String> noteGroupNames(NoteData note) {
+        for (TrackData track : state.tracks()) {
+            if (track.notes().contains(note)) {
+                EditorDraft.NoteGroupEntry entry = new EditorDraft.NoteGroupEntry(track.id(), note.beat(), note.noteType());
+                Set<String> names = state.editorDraft().noteGroupNamesContaining(entry);
+                if (!names.isEmpty()) {
+                    return names;
+                }
+            }
+        }
+        return Set.of();
+    }
+
+    private int groupNameColor(String name) {
+        int hash = name.hashCode();
+        float hue = (Math.abs(hash) % 360) / 360.0f;
+        return hsbToRgb(hue, 0.75f, 0.9f);
+    }
+
+    private int hsbToRgb(float hue, float saturation, float brightness) {
+        int r = 0, g = 0, b = 0;
+        if (saturation == 0) {
+            r = g = b = (int) (brightness * 255.0f + 0.5f);
+        } else {
+            float h = (hue - (float) Math.floor(hue)) * 6.0f;
+            float f = h - (float) Math.floor(h);
+            float p = brightness * (1.0f - saturation);
+            float q = brightness * (1.0f - saturation * f);
+            float t = brightness * (1.0f - saturation * (1.0f - f));
+            switch ((int) h) {
+                case 0 -> { r = (int) (brightness * 255.0f + 0.5f); g = (int) (t * 255.0f + 0.5f); b = (int) (p * 255.0f + 0.5f); }
+                case 1 -> { r = (int) (q * 255.0f + 0.5f); g = (int) (brightness * 255.0f + 0.5f); b = (int) (p * 255.0f + 0.5f); }
+                case 2 -> { r = (int) (p * 255.0f + 0.5f); g = (int) (brightness * 255.0f + 0.5f); b = (int) (t * 255.0f + 0.5f); }
+                case 3 -> { r = (int) (p * 255.0f + 0.5f); g = (int) (q * 255.0f + 0.5f); b = (int) (brightness * 255.0f + 0.5f); }
+                case 4 -> { r = (int) (t * 255.0f + 0.5f); g = (int) (p * 255.0f + 0.5f); b = (int) (brightness * 255.0f + 0.5f); }
+                case 5 -> { r = (int) (brightness * 255.0f + 0.5f); g = (int) (p * 255.0f + 0.5f); b = (int) (q * 255.0f + 0.5f); }
+            }
+        }
+        return 0xFF000000 | ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
+    }
+
+    private String effectClipText(EffectData effect) {
+        JsonObject properties = effect.properties() == null ? new JsonObject() : effect.properties();
+        String text = firstProperty(properties, "text", "content", "title", "message", "value", "id");
+        if (text == null || text.isBlank()) {
+            text = propertyString(properties, "id", "-");
+        }
+        return trimToWidth(text, Math.max(40, TIMELINE_LABEL_WIDTH - 24));
     }
 
     private void drawTrackHeaderLane(DrawContext context, TrackData track, int labelX, int contentX, int rowTop, int laneHeight, int width) {
@@ -3990,6 +5026,14 @@ public class ChartEditorScreen extends Screen {
             context.fill(noteX - halfWidth, noteY - halfHeight, noteX + halfWidth, noteY + halfHeight, color);
             if (selected) {
                 context.fill(noteX - 1, rowTop + 4, noteX + 1, rowTop + laneHeight - 4, 0x88FFFFFF);
+            }
+            Set<String> groups = noteGroupNames(note);
+            if (!groups.isEmpty()) {
+                int groupColor = groupNameColor(groups.iterator().next());
+                context.fill(noteX - halfWidth - 1, noteY - halfHeight - 1, noteX + halfWidth + 1, noteY - halfHeight, groupColor);
+                context.fill(noteX - halfWidth - 1, noteY + halfHeight, noteX + halfWidth + 1, noteY + halfHeight + 1, groupColor);
+                context.fill(noteX - halfWidth - 1, noteY - halfHeight, noteX - halfWidth, noteY + halfHeight, groupColor);
+                context.fill(noteX + halfWidth, noteY - halfHeight, noteX + halfWidth + 1, noteY + halfHeight, groupColor);
             }
         }
         context.disableScissor();
@@ -4261,6 +5305,7 @@ public class ChartEditorScreen extends Screen {
 
     private void updateNoteSelectionFromClick(SelectedNote selectedNote, boolean additive) {
         if (!additive) {
+            selectedEffects.clear();
             selectedEventClips.clear();
             replaceSelectedNotes(List.of(selectedNote));
             return;
@@ -4273,9 +5318,25 @@ public class ChartEditorScreen extends Screen {
         }
     }
 
+    private void updateEffectSelectionFromClick(SelectedEffect selectedEffect, boolean additive) {
+        if (!additive) {
+            selectedNotes.clear();
+            selectedEventClips.clear();
+            replaceSelectedEffects(List.of(selectedEffect));
+            return;
+        }
+        if (!selectedEffects.add(selectedEffect)) {
+            selectedEffects.remove(selectedEffect);
+        }
+        if (selectedEffects.isEmpty()) {
+            selectedEffects.add(selectedEffect);
+        }
+    }
+
     private void updateEventClipSelectionFromClick(SelectedEventClip clip, boolean additive) {
         if (!additive) {
             selectedNotes.clear();
+            selectedEffects.clear();
             replaceSelectedEventClips(List.of(clip));
             return;
         }
@@ -4292,9 +5353,18 @@ public class ChartEditorScreen extends Screen {
         selectedNotes.addAll(notes);
     }
 
+    private void replaceSelectedEffects(List<SelectedEffect> effects) {
+        selectedEffects.clear();
+        selectedEffects.addAll(effects);
+    }
+
     private void replaceSelectedEventClips(List<SelectedEventClip> clips) {
         selectedEventClips.clear();
         selectedEventClips.addAll(clips);
+    }
+
+    private boolean isEffectSelected(EffectData effect) {
+        return effect == state.selection().effect() || selectedEffects.contains(new SelectedEffect(effect));
     }
 
     private boolean isNoteSelected(TrackData track, NoteData note) {
@@ -4324,6 +5394,35 @@ public class ChartEditorScreen extends Screen {
                 eventClipDragSnapshots.put(clip, new EventClipDragSnapshot(event, event.startBeat(), event.endBeat()));
             }
         }
+    }
+
+    private void initializeEffectClipDrag(double pointerBeat) {
+        effectDragSnapshots.clear();
+        dragAnchorBeat = pointerBeat;
+        for (SelectedEffect selectedEffect : selectedEffects) {
+            effectDragSnapshots.put(selectedEffect, new EffectDragSnapshot(selectedEffect.effect().beat(), effectEndBeat(selectedEffect.effect())));
+        }
+    }
+
+    private void applyDraggedEffects(double beatDelta) {
+        if (effectDragSnapshots.isEmpty()) {
+            return;
+        }
+        double minStart = Double.POSITIVE_INFINITY;
+        for (EffectDragSnapshot snapshot : effectDragSnapshots.values()) {
+            minStart = Math.min(minStart, snapshot.startBeat() + beatDelta);
+        }
+        if (minStart < -64.0) {
+            beatDelta += -64.0 - minStart;
+        }
+        for (Map.Entry<SelectedEffect, EffectDragSnapshot> entry : effectDragSnapshots.entrySet()) {
+            EffectData effect = entry.getKey().effect();
+            double newBeat = Math.max(-64.0, entry.getValue().startBeat() + beatDelta);
+            effect.setBeat(newBeat);
+        }
+        state.sortCurrentLevel();
+        state.markDirty();
+        state.setStatus("Moved " + effectDragSnapshots.size() + " effect clip(s)");
     }
 
     private void applyDraggedNotes(double beatDelta, double axisDelta, TrackData hoveredTrack, TrackData singleMoveTarget) {
@@ -4519,9 +5618,11 @@ public class ChartEditorScreen extends Screen {
         int top = Math.max(timelineY + TIMELINE_RULER_HEIGHT, Math.min(selectionBox.startY(), selectionBox.endY()));
         int bottom = Math.min(contentBottom, Math.max(selectionBox.startY(), selectionBox.endY()));
         LinkedHashSet<SelectedNote> hitNotes = selectionBoxAdditive ? new LinkedHashSet<>(selectedNotes) : new LinkedHashSet<>();
+        LinkedHashSet<SelectedEffect> hitEffects = selectionBoxAdditive ? new LinkedHashSet<>(selectedEffects) : new LinkedHashSet<>();
         LinkedHashSet<SelectedEventClip> hitClips = selectionBoxAdditive ? new LinkedHashSet<>(selectedEventClips) : new LinkedHashSet<>();
         NoteAxis firstAxis = activeNoteAxis;
         SelectedNote firstNote = null;
+        SelectedEffect firstEffect = null;
         SelectedEventClip firstClip = null;
         for (TimelineLaneLayout layout : layouts) {
             TimelineLane lane = layout.lane();
@@ -4537,6 +5638,18 @@ public class ChartEditorScreen extends Screen {
                             firstNote = selectedNote;
                             firstAxis = lane.noteAxis();
                         }
+                    }
+                }
+            } else if (lane.type == LaneType.FX_EFFECT_CLIP && lane.effect != null) {
+                int startX = beatToScreen(contentX, contentWidth, lane.effect.beat());
+                int endX = beatToScreen(contentX, contentWidth, effectEndBeat(lane.effect));
+                int clipLeft = Math.min(startX, endX);
+                int clipRight = Math.max(startX, endX);
+                if (rectanglesIntersect(left, top, right, bottom, clipLeft, layout.top() + 4, clipRight, layout.top() + layout.height() - 4)) {
+                    SelectedEffect selectedEffect = new SelectedEffect(lane.effect);
+                    hitEffects.add(selectedEffect);
+                    if (firstEffect == null) {
+                        firstEffect = selectedEffect;
                     }
                 }
             } else if (lane.type == LaneType.EVENTS && lane.track() != null && lane.eventType() != null) {
@@ -4556,11 +5669,15 @@ public class ChartEditorScreen extends Screen {
             }
         }
         replaceSelectedNotes(new ArrayList<>(hitNotes));
+        replaceSelectedEffects(new ArrayList<>(hitEffects));
         replaceSelectedEventClips(new ArrayList<>(hitClips));
         if (firstNote != null) {
             activeNoteAxis = firstAxis;
             state.setSelection(EditorSelection.note(firstNote.track(), firstNote.note()));
             state.setStatus("Selected " + hitNotes.size() + " note(s)");
+        } else if (firstEffect != null) {
+            state.setSelection(EditorSelection.effect(firstEffect.effect()));
+            state.setStatus("Selected " + hitEffects.size() + " effect clip(s)");
         } else if (firstClip != null) {
             selectedEventClip = firstClip;
             state.setSelection(EditorSelection.track(firstClip.track()));
@@ -4991,6 +6108,9 @@ public class ChartEditorScreen extends Screen {
         }
     }
 
+    private record NumericFieldAdjustment(double baseStep, boolean integer) {
+    }
+
     private record EditorLayout(int leftX, int topY, int leftWidth, int rightX, int rightWidth, int centerX, int centerWidth,
                                 int panelHeight, int previewHeight, int timelineY, int timelineHeight, int trackBarY) {
     }
@@ -5074,6 +6194,9 @@ public class ChartEditorScreen extends Screen {
     private record SelectedNote(TrackData track, NoteData note) {
     }
 
+    private record SelectedEffect(EffectData effect) {
+    }
+
     private record SmoothingCircle(double centerX, double centerY, double radius, double startAngle, double sweep) {
     }
 
@@ -5083,10 +6206,13 @@ public class ChartEditorScreen extends Screen {
     private record NoteClipboard(List<NoteClipboardEntry> entries, int baseTrackIndex, double baseBeat) {
     }
 
-    private record TimelineLane(LaneType type, TrackData track, EventLaneType eventType, NoteAxis noteAxis, String eventGroup) {
-        TimelineLane(LaneType type, TrackData track, EventLaneType eventType, NoteAxis noteAxis) {
-            this(type, track, eventType, noteAxis, null);
-        }
+    private record EffectClipboardEntry(double beatOffset, EffectType effectType, com.google.gson.JsonObject properties) {
+    }
+
+    private record EffectClipboard(List<EffectClipboardEntry> entries, double baseBeat) {
+    }
+
+    private record TimelineLane(LaneType type, TrackData track, EffectData effect, EventLaneType eventType, NoteAxis noteAxis, String eventGroup) {
     }
 
     private record TimelineLaneLayout(TimelineLane lane, int top, int height) {
@@ -5098,6 +6224,9 @@ public class ChartEditorScreen extends Screen {
     private record NoteDragSnapshot(TrackData track, double beat, double axisValue) {
     }
 
+    private record EffectDragSnapshot(double startBeat, double endBeat) {
+    }
+
     private record EventClipDragSnapshot(NumEventData event, double startBeat, double endBeat) {
     }
 
@@ -5106,7 +6235,8 @@ public class ChartEditorScreen extends Screen {
 
     private enum LaneType {
         BPM,
-        EFFECTS,
+        FX_TRACK_HEADER,
+        FX_EFFECT_CLIP,
         TRACK_HEADER,
         NOTE_AXIS,
         EVENT_GROUP_HEADER,
@@ -5164,7 +6294,8 @@ public class ChartEditorScreen extends Screen {
     private enum ToolbarMenu {
         FILE("File"),
         EDIT("Edit"),
-        OPTIONS("Options");
+        OPTIONS("Options"),
+        PREVIEW("Preview");
 
         private final String label;
 
@@ -5173,14 +6304,24 @@ public class ChartEditorScreen extends Screen {
         }
     }
 
+    private enum PendingPreviewAction {
+        NONE,
+        LOAD_ONLY,
+        START,
+        RESTART
+    }
+
     private enum DragMode {
         NONE,
         NOTE,
         EFFECT,
         BPM,
+        MAP_NOTE,
+        MAP_EFFECT,
         EVENT_HANDLE,
         EVENT_CLIP,
         HOLD_LENGTH,
+        TIMELINE_ZOOM,
         BOX_SELECT,
         TRACK_EVENT_BOX_SELECT,
         TRACK_EVENT_ROW,
@@ -5188,12 +6329,12 @@ public class ChartEditorScreen extends Screen {
     }
 
     public static void open() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        client.setScreen(new ChartEditorScreen(new ChartEditorState()));
+        RmcChartClient.openActiveEditor();
     }
 
     @Override
     public void close() {
+        RmcChartClient.getPreviewClient().setEventHandler(null);
         if (client != null && client.world != null) {
             RmcChartClient.getWorldLauncher().onEditorClosed();
             client.setScreen(null);

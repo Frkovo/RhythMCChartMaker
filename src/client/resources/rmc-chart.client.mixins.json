@@ -4,6 +4,8 @@
   "package": "cn.frkovo.rhythmcv2.rmcChart.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "GameMenuScreenMixin",
+    "InGameHudMixin",
     "TitleScreenMixin"
   ],
   "injectors": {

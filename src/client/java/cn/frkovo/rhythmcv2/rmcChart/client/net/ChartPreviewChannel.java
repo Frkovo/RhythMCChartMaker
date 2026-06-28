@@ -13,19 +13,32 @@ public final class ChartPreviewChannel {
     }
 
     // Client -> Server
-    public static final int OP_CHART_LOAD = 1;
-    public static final int OP_PREVIEW_START = 2;
-    public static final int OP_PREVIEW_STOP = 3;
-    public static final int OP_PREVIEW_RESTART = 4;
-    public static final int OP_CHART_LOAD_CHUNK_START = 5;
-    public static final int OP_CHART_LOAD_CHUNK = 6;
-    public static final int OP_CHART_LOAD_CHUNK_END = 7;
+    public static final int OP_HELLO = 1;
+    public static final int OP_CHART_LOAD = 2;
+    public static final int OP_PREVIEW_START = 3;
+    public static final int OP_PREVIEW_STOP = 4;
+    public static final int OP_PREVIEW_RESTART = 5;
+    public static final int OP_CHART_LOAD_CHUNK_START = 6;
+    public static final int OP_CHART_LOAD_CHUNK = 7;
+    public static final int OP_CHART_LOAD_CHUNK_END = 8;
+    public static final int OP_FILE_UPLOAD_START = 9;
+    public static final int OP_FILE_UPLOAD_CHUNK = 10;
+    public static final int OP_FILE_UPLOAD_END = 11;
 
     // Server -> Client
-    public static final int OP_CHART_LOAD_ACK = 101;
-    public static final int OP_PREVIEW_READY = 102;
-    public static final int OP_PREVIEW_STOPPED = 103;
-    public static final int OP_ERROR = 104;
+    public static final int OP_HELLO_ACK = 101;
+    public static final int OP_CHART_LOAD_ACK = 102;
+    public static final int OP_PREVIEW_READY = 103;
+    public static final int OP_PREVIEW_STOPPED = 104;
+    public static final int OP_ERROR = 105;
+    public static final int OP_FILE_UPLOAD_ACK = 106;
+    public static final int OP_EDITOR_OPEN = 107;
+    public static final int OP_EDITOR_SELECT = 108;
+
+    public static final int PROTOCOL_VERSION = 2;
+    public static final String FILE_TYPE_SCHEMATIC = "SCHEMATIC";
+    public static final String FILE_TYPE_AUDIO = "AUDIO";
+    public static final String DEFAULT_SCHEMATIC_NAME = "VILLAGE.schem";
 
     /** Safe max payload size for a single plugin message (well under the ~32KB Bukkit limit). */
     public static final int SAFE_PAYLOAD_BYTES = 28_000;

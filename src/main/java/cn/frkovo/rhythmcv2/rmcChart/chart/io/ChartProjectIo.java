@@ -64,6 +64,14 @@ public final class ChartProjectIo {
         }
     }
 
+    public static String toManifestJson(SongManifestData manifest) {
+        return GSON.toJson(manifest.toOrderedMap());
+    }
+
+    public static String toLevelJson(LevelData level) {
+        return GSON.toJson(toLevelJsonObject(level));
+    }
+
     private static SongManifestData loadManifest(Path path) throws IOException {
         if (!Files.exists(path)) {
             return SongManifestData.createDefault();
@@ -106,6 +114,10 @@ public final class ChartProjectIo {
             return LevelData.createDefault(difficulty);
         }
         JsonObject root = JsonParser.parseReader(Files.newBufferedReader(path)).getAsJsonObject();
+        return parseLevel(root, difficulty);
+    }
+
+    public static LevelData parseLevel(JsonObject root, ChartDifficulty difficulty) {
         LevelData level = new LevelData(loadMeta(root.getAsJsonObject("meta"), difficulty));
         JsonArray tracks = root.has("tracks") && root.get("tracks").isJsonArray() ? root.getAsJsonArray("tracks") : new JsonArray();
         for (JsonElement element : tracks) {
@@ -126,6 +138,12 @@ public final class ChartProjectIo {
     }
 
     private static void saveLevel(Path path, LevelData level) throws IOException {
+        try (Writer writer = Files.newBufferedWriter(path)) {
+            GSON.toJson(toLevelJsonObject(level), writer);
+        }
+    }
+
+    private static JsonObject toLevelJsonObject(LevelData level) {
         JsonObject root = new JsonObject();
         root.add("meta", saveMeta(level.meta()));
         JsonArray tracks = new JsonArray();
@@ -138,9 +156,7 @@ public final class ChartProjectIo {
             effects.add(saveEffect(effect));
         }
         root.add("effects", effects);
-        try (Writer writer = Files.newBufferedWriter(path)) {
-            GSON.toJson(root, writer);
-        }
+        return root;
     }
 
     private static MetaData loadMeta(JsonObject metaObject, ChartDifficulty difficulty) {

@@ -1,6 +1,6 @@
 package cn.frkovo.rhythmcv2.rmcChart.mixin.client;
 
-import cn.frkovo.rhythmcv2.rmcChart.client.project.ProjectHubScreen;
+import cn.frkovo.rhythmcv2.rmcChart.client.RmcChartClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.TitleScreen;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -18,13 +18,8 @@ abstract class TitleScreenMixin extends Screen {
 
     @Inject(method = "init", at = @At("TAIL"))
     private void rmcChart$addCreateSongButton(CallbackInfo ci) {
-        int buttonWidth = 140;
-        int buttonX = 8;
-        int buttonY = this.height - 28;
-
-        this.addDrawableChild(ButtonWidget.builder(Text.literal("RhythMC Projects"), button ->
-                        this.client.setScreen(new ProjectHubScreen((TitleScreen) (Object) this)))
-                .dimensions(buttonX, buttonY, buttonWidth, 20)
+        addDrawableChild(ButtonWidget.builder(Text.literal("RhythMC Chart Maker"), button -> RmcChartClient.connectToPreviewServer(this))
+                .dimensions(this.width / 2 - 100, this.height / 4 + 180, 200, 20)
                 .build());
     }
 }

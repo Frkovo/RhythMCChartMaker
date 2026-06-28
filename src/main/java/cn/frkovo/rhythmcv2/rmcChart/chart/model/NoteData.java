@@ -29,6 +29,9 @@ public class NoteData {
 
     public void setNoteType(NoteType noteType) {
         this.noteType = noteType;
+        if (noteType == NoteType.HOLD) {
+            this.pos.set(this.pos.x(), this.pos.y(), -1.0);
+        }
     }
 
     public double beat() {

@@ -13,8 +13,10 @@ import cn.frkovo.rhythmcv2.rmcChart.chart.model.NumEventData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.MetaData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.SongManifestData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.TrackData;
+import cn.frkovo.rhythmcv2.rmcChart.client.RmcChartClient;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.AudioAnalysis;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.AudioAnalysisService;
+import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.PreviewAutoSoundScheduler;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.SongAudioPlayer;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.SongAudioResolver;
 import cn.frkovo.rhythmcv2.rmcChart.client.project.ProjectStorage;
@@ -28,7 +30,10 @@ public class ChartEditorState {
     }
 
     public record EditorSnapshot(ChartProject project, ChartDifficulty activeDifficulty, double visibleStartBeat, double beatsPerScreen,
-                                 double playheadBeat, SelectionSnapshot selection) {
+                                  double playheadBeat, SelectionSnapshot selection) {
+    }
+
+    public record SerializedPreviewChart(String manifestJson, String levelJson) {
     }
 
     private ChartProject project;
@@ -51,6 +56,18 @@ public class ChartEditorState {
     private int revision = 0;
     private final Set<Integer> expandedTrackIds = new HashSet<>();
     private final Map<Integer, Set<String>> expandedTrackEventGroups = new HashMap<>();
+    private boolean fxTrackExpanded = true;
+    private boolean projectDirty;
+    private boolean previewChartDirty = true;
+    private boolean previewChartUploaded;
+    private boolean previewUploading;
+    private boolean serverPreviewRunning;
+    private boolean previewAudioUploaded;
+    private boolean previewSchematicUploaded;
+    private boolean previewAutoStarted;
+    private final PreviewAutoSoundScheduler autoSoundScheduler = new PreviewAutoSoundScheduler();
+    private final EditorDraft editorDraft = new EditorDraft();
+
 
     public ChartEditorState() {
         Path defaultPath = ProjectStorage.projectPath("default-project");
@@ -81,6 +98,40 @@ public class ChartEditorState {
         this.selection = selection;
     }
 
+    public boolean selectTrackById(int trackId) {
+        TrackData track = trackById(trackId);
+        if (track == null) {
+            return false;
+        }
+        setSelection(EditorSelection.track(track));
+        return true;
+    }
+
+    public boolean selectNoteByTrackAndIndex(int trackId, int noteIndex) {
+        TrackData track = trackById(trackId);
+        if (track == null || noteIndex < 0 || noteIndex >= track.notes().size()) {
+            return false;
+        }
+        setSelection(EditorSelection.note(track, track.notes().get(noteIndex)));
+        return true;
+    }
+
+    public boolean selectEffectByIndex(int effectIndex) {
+        if (effectIndex < 0 || effectIndex >= level().effects().size()) {
+            return false;
+        }
+        setSelection(EditorSelection.effect(level().effects().get(effectIndex)));
+        return true;
+    }
+
+    public boolean selectBpmByIndex(int bpmIndex) {
+        if (bpmIndex < 0 || bpmIndex >= level().meta().bpms().size()) {
+            return false;
+        }
+        setSelection(EditorSelection.bpm(level().meta().bpms().get(bpmIndex)));
+        return true;
+    }
+
     public double visibleStartBeat() {
         return visibleStartBeat;
     }
@@ -95,6 +146,10 @@ public class ChartEditorState {
 
     public double playheadBeat() {
         return playheadBeat;
+    }
+
+    public long playheadMillis() {
+        return playheadMillis;
     }
 
     public boolean playing() {
@@ -137,6 +192,48 @@ public class ChartEditorState {
         return audioPlayer.lengthMillis();
     }
 
+    public long totalDurationMillis() {
+        if (audioPlayer.isLoaded() && audioPlayer.lengthMillis() > 0L) {
+            return audioPlayer.lengthMillis();
+        }
+        long manifestMillis = Math.max(0L, project.manifest().length()) * 1000L;
+        if (manifestMillis > 0L) {
+            return manifestMillis;
+        }
+        double maxBeat = Math.max(playheadBeat, playbackEndBeat);
+        for (TrackData track : level().tracks()) {
+            for (NoteData note : track.notes()) {
+                maxBeat = Math.max(maxBeat, note.beat() + note.holdLengthBeats());
+            }
+        }
+        return Math.max(manifestMillis, timing().beatToMillis(maxBeat));
+    }
+
+    public double currentBpm() {
+        double bpm = 120.0;
+        for (BpmPoint point : level().meta().bpms()) {
+            if (point.beat() <= playheadBeat) {
+                bpm = point.bpm();
+            } else {
+                break;
+            }
+        }
+        return bpm;
+    }
+
+    public long playheadTick() {
+        return Math.max(0L, playheadMillis / 50L);
+    }
+
+    public String progressText() {
+        return String.format(java.util.Locale.ROOT, "%.2f BPM at %.3f beat | TICK %d | %s / %s",
+                currentBpm(),
+                playheadBeat,
+                playheadTick(),
+                formatDuration(playheadMillis),
+                formatDuration(totalDurationMillis()));
+    }
+
     public AudioAnalysis audioAnalysis() {
         return audioAnalysis;
     }
@@ -151,6 +248,42 @@ public class ChartEditorState {
 
     public int revision() {
         return revision;
+    }
+
+    public boolean projectDirty() {
+        return projectDirty;
+    }
+
+    public boolean previewChartDirty() {
+        return previewChartDirty;
+    }
+
+    public boolean previewChartUploaded() {
+        return previewChartUploaded;
+    }
+
+    public boolean previewUploading() {
+        return previewUploading;
+    }
+
+    public boolean serverPreviewRunning() {
+        return serverPreviewRunning;
+    }
+
+    public boolean previewAudioUploaded() {
+        return previewAudioUploaded;
+    }
+
+    public boolean previewSchematicUploaded() {
+        return previewSchematicUploaded;
+    }
+
+    public boolean previewAutoStarted() {
+        return previewAutoStarted;
+    }
+
+    public void markPreviewAutoStarted() {
+        previewAutoStarted = true;
     }
 
     public TimingTimeline timing() {
@@ -174,6 +307,7 @@ public class ChartEditorState {
             }
             keepPlayheadVisible();
         }
+        autoSoundScheduler.tick(this);
         lastTickNanos = now;
     }
 
@@ -257,6 +391,17 @@ public class ChartEditorState {
         keepPlayheadVisible();
     }
 
+    public void seekByMillis(long deltaMillis) {
+        long totalMillis = totalDurationMillis();
+        long nextMillis = playheadMillis + deltaMillis;
+        if (totalMillis > 0L) {
+            nextMillis = Math.max(0L, Math.min(totalMillis, nextMillis));
+        } else {
+            nextMillis = Math.max(0L, nextMillis);
+        }
+        seekToBeat(timing().calcBeat(nextMillis));
+    }
+
     public void scrollWindow(double deltaBeat) {
         visibleStartBeat = Math.max(-64.0, visibleStartBeat + deltaBeat);
     }
@@ -282,7 +427,12 @@ public class ChartEditorState {
             visibleStartBeat = 0.0;
             reloadAudio();
             resetExpandedTracks();
-            markDirty();
+            editorDraft.clear();
+            projectDirty = false;
+            resetPreviewSyncState();
+            ProjectStorage.recordRecentProject(path);
+            revision++;
+            RmcChartClient.beginEditorSession(true);
             setStatus("Loaded project: " + path);
         } catch (IOException exception) {
             setStatus("Load failed: " + exception.getMessage());
@@ -294,10 +444,53 @@ public class ChartEditorState {
             project.setProjectPath(path);
             sortCurrentLevel();
             ChartProjectIo.save(project);
+            projectDirty = false;
+            ProjectStorage.recordRecentProject(path);
+            RmcChartClient.markEditorSessionSaved();
             setStatus("Saved project: " + path);
         } catch (IOException exception) {
             setStatus("Save failed: " + exception.getMessage());
         }
+    }
+
+    public SerializedPreviewChart serializeCurrentChart() {
+        sortCurrentLevel();
+        return new SerializedPreviewChart(
+                ChartProjectIo.toManifestJson(project.manifest()),
+                ChartProjectIo.toLevelJson(level())
+        );
+    }
+
+    public void applyLevelJson(JsonObject levelJson) {
+        LevelData newLevel = ChartProjectIo.parseLevel(levelJson, activeDifficulty);
+        project.setLevel(activeDifficulty, newLevel);
+        selection = EditorSelection.song();
+        playheadBeat = 0.0;
+        playheadMillis = timing().beatToMillis(playheadBeat);
+        resetExpandedTracks();
+        projectDirty = true;
+        previewChartDirty = true;
+        previewChartUploaded = false;
+        previewUploading = false;
+        serverPreviewRunning = false;
+        revision++;
+        setStatus("Applied raw level JSON");
+    }
+
+    public void startServerPreviewAudio(double beat) {
+        serverPreviewRunning = true;
+        startPlaybackAt(beat, "Server preview playing @ " + formatBeat(beat));
+        autoSoundScheduler.reset(this, beat);
+    }
+
+    public void stopServerPreviewAudio(String status) {
+        serverPreviewRunning = false;
+        autoSoundScheduler.reset(null, 0.0);
+        pausePlayback(status);
+    }
+
+    public void resetTickClock() {
+        lastTickNanos = System.nanoTime();
     }
 
     public void newProject(Path path) {
@@ -309,12 +502,57 @@ public class ChartEditorState {
         visibleStartBeat = 0.0;
         reloadAudio();
         resetExpandedTracks();
+        editorDraft.clear();
+        RmcChartClient.beginEditorSession(false);
         markDirty();
         setStatus("Created new project: " + path);
     }
 
     public void markDirty() {
         revision++;
+        projectDirty = true;
+        RmcChartClient.markEditorSessionDirty();
+        previewChartDirty = true;
+        previewChartUploaded = false;
+        previewUploading = false;
+        serverPreviewRunning = false;
+    }
+
+    public void markPreviewUploadStarted() {
+        previewUploading = true;
+        previewChartUploaded = false;
+        serverPreviewRunning = false;
+    }
+
+    public void markPreviewChartUploaded() {
+        previewUploading = false;
+        previewChartDirty = false;
+        previewChartUploaded = true;
+    }
+
+    public void markPreviewUploadFailed() {
+        previewUploading = false;
+        serverPreviewRunning = false;
+    }
+
+    public void markPreviewAssetUploaded(String fileType) {
+        previewUploading = false;
+        if (cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.FILE_TYPE_AUDIO.equalsIgnoreCase(fileType)) {
+            previewAudioUploaded = true;
+        }
+        if (cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.FILE_TYPE_SCHEMATIC.equalsIgnoreCase(fileType)) {
+            previewSchematicUploaded = true;
+        }
+    }
+
+    public void resetPreviewSyncState() {
+        previewChartDirty = true;
+        previewChartUploaded = false;
+        previewUploading = false;
+        serverPreviewRunning = false;
+        previewAudioUploaded = false;
+        previewSchematicUploaded = false;
+        previewAutoStarted = false;
     }
 
     public void reloadAudio() {
@@ -322,6 +560,7 @@ public class ChartEditorState {
         audioPath = null;
         audioStatus = "No audio";
         audioAnalysis = AudioAnalysis.empty();
+        previewAudioUploaded = false;
 
         Optional<Path> resolved = SongAudioResolver.resolve(project.projectPath());
         if (resolved.isEmpty()) {
@@ -518,6 +757,22 @@ public class ChartEditorState {
         }
     }
 
+    public boolean isFxTrackExpanded() {
+        return fxTrackExpanded;
+    }
+
+    public void toggleFxTrackExpanded() {
+        fxTrackExpanded = !fxTrackExpanded;
+    }
+
+    public void setFxTrackExpanded(boolean expanded) {
+        fxTrackExpanded = expanded;
+    }
+
+    public EditorDraft editorDraft() {
+        return editorDraft;
+    }
+
     public boolean isTrackEventGroupExpanded(TrackData track, String group) {
         if (track == null || group == null) return true;
         return expandedTrackEventGroups.computeIfAbsent(track.id(), k ->
@@ -586,12 +841,18 @@ public class ChartEditorState {
         activeDifficulty = snapshot.activeDifficulty();
         visibleStartBeat = snapshot.visibleStartBeat();
         beatsPerScreen = snapshot.beatsPerScreen();
-        playheadBeat = snapshot.playheadBeat();
-        selection = restoreSelection(snapshot.selection());
-        playheadMillis = timing().beatToMillis(playheadBeat);
-        ensureSelectionValid();
+            playheadBeat = snapshot.playheadBeat();
+            selection = restoreSelection(snapshot.selection());
+            playheadMillis = timing().beatToMillis(playheadBeat);
+            editorDraft.clear();
+            ensureSelectionValid();
         syncAudio(true);
         revision++;
+        projectDirty = true;
+        previewChartDirty = true;
+        previewChartUploaded = false;
+        previewUploading = false;
+        serverPreviewRunning = false;
     }
 
     public void sortCurrentLevel() {
@@ -841,6 +1102,15 @@ public class ChartEditorState {
             return 0.0;
         }
         return Math.max(-64.0, beat);
+    }
+
+    private String formatDuration(long millis) {
+        long safe = Math.max(0L, millis);
+        long totalSeconds = safe / 1000L;
+        long minutes = totalSeconds / 60L;
+        long seconds = totalSeconds % 60L;
+        long hundredths = (safe % 1000L) / 10L;
+        return String.format(java.util.Locale.ROOT, "%02d:%02d.%02d", minutes, seconds, hundredths);
     }
 
     private void syncAudio(boolean forceSeek) {

@@ -1,6 +1,7 @@
 package cn.frkovo.rhythmcv2.rmcChart.client.project;
 
 import cn.frkovo.rhythmcv2.rmcChart.client.RmcChartClient;
+import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -33,16 +34,16 @@ public class ProjectBrowserScreen extends Screen {
     @Override
     protected void init() {
         int left = width / 2 - 220;
-        searchField = addDrawableChild(new TextFieldWidget(textRenderer, left + 12, 58, 300, 18, Text.literal("Search")));
+        searchField = addDrawableChild(new TextFieldWidget(textRenderer, left + 12, 82, 300, 18, Text.literal("Search")));
         searchField.setSuggestion("Search by project folder / song / composer");
         searchField.setChangedListener(value -> applyFilter());
 
         refreshProjects();
         addDrawableChild(ButtonWidget.builder(Text.literal("Refresh"), button -> refreshProjects())
-                .dimensions(width / 2 + 98, 58, 70, 18)
+                .dimensions(width / 2 + 98, 82, 70, 18)
                 .build());
         addDrawableChild(ButtonWidget.builder(Text.literal("Sort: Updated"), button -> toggleSort(button))
-                .dimensions(width / 2 + 174, 58, 110, 18)
+                .dimensions(width / 2 + 174, 82, 110, 18)
                 .build());
         addDrawableChild(ButtonWidget.builder(Text.literal("Back"), button -> close())
                 .dimensions(width / 2 - 70, height - 30, 140, 20)
@@ -59,26 +60,45 @@ public class ProjectBrowserScreen extends Screen {
         context.fill(left, top, left + panelWidth, top + panelHeight, 0xCC10141C);
         drawOutline(context, left, top, panelWidth, panelHeight, 0xFF4FC3F7);
 
-        super.render(context, mouseX, mouseY, delta);
-
-        context.drawCenteredTextWithShadow(textRenderer, title, width / 2, top + 8, 0xFFFFFF);
-        context.drawText(textRenderer, Text.literal(status), left + 12, top + 24, 0xBFD8E6, false);
-
-        int contentTop = top + 48;
+        int contentTop = top + 72;
         int rowY = contentTop + 24 - scroll;
 
         if (searchField.getText().isBlank() && !recentProjects.isEmpty()) {
-            context.drawText(textRenderer, Text.literal("Recent Projects"), left + 12, rowY - 14, 0xFFD580, false);
             for (ProjectSummary summary : recentProjects) {
-                drawProjectCard(context, summary, left + 12, rowY, panelWidth - 24, true, true);
+                drawProjectCardBackground(context, summary, left + 12, rowY, panelWidth - 24, true, true);
                 rowY += 58;
             }
             rowY += 8;
         }
 
-        context.drawText(textRenderer, Text.literal((searchField.getText().isBlank() ? "All Projects" : "Search Results") + " - Sort: " + sortMode.label), left + 12, rowY - 14, 0x9FD7FF, false);
         for (ProjectSummary summary : filteredProjects) {
-            drawProjectCard(context, summary, left + 12, rowY, panelWidth - 24, false, false);
+            drawProjectCardBackground(context, summary, left + 12, rowY, panelWidth - 24, false, false);
+            rowY += 58;
+        }
+
+        super.render(context, mouseX, mouseY, delta);
+
+        TextRenderer renderer = textRenderer != null ? textRenderer : client.textRenderer;
+        if (renderer == null) {
+            return;
+        }
+
+        context.drawCenteredTextWithShadow(renderer, title, width / 2, top + 8, 0xFFFFFFFF);
+        context.drawText(renderer, Text.literal(status), left + 12, top + 24, 0xFFFFFFFF, false);
+
+        rowY = contentTop + 24 - scroll;
+        if (searchField.getText().isBlank() && !recentProjects.isEmpty()) {
+            context.drawText(renderer, Text.literal("Recent Projects"), left + 12, rowY - 14, 0xFFFFD580, false);
+            for (ProjectSummary summary : recentProjects) {
+                drawProjectCardText(context, renderer, summary, left + 12, rowY, panelWidth - 24, true);
+                rowY += 58;
+            }
+            rowY += 8;
+        }
+
+        context.drawText(renderer, Text.literal((searchField.getText().isBlank() ? "All Projects" : "Search Results") + " - Sort: " + sortMode.label), left + 12, rowY - 14, 0xFF9FD7FF, false);
+        for (ProjectSummary summary : filteredProjects) {
+            drawProjectCardText(context, renderer, summary, left + 12, rowY, panelWidth - 24, false);
             rowY += 58;
         }
     }
@@ -107,6 +127,10 @@ public class ProjectBrowserScreen extends Screen {
 
     @Override
     public void close() {
+        if (client != null && client.world != null) {
+            client.setScreen(parent);
+            return;
+        }
         client.setScreen(parent);
     }
 
@@ -137,34 +161,46 @@ public class ProjectBrowserScreen extends Screen {
                 || summary.composer().toLowerCase(Locale.ROOT).contains(search);
     }
 
-    private void drawProjectCard(DrawContext context, ProjectSummary summary, int x, int y, int width, boolean recent, boolean recentBadge) {
+    private void drawProjectCardBackground(DrawContext context, ProjectSummary summary, int x, int y, int width, boolean recent, boolean recentBadge) {
         if (y + 52 < 84 || y > height - 44) {
             return;
         }
         context.fill(x, y, x + width, y + 50, recent ? 0x66403A28 : 0x66303030);
         drawOutline(context, x, y, width, 50, recent ? 0xFFCC9B52 : 0xFF506070);
-        drawThumbnail(context, summary, x + 8, y + 6, 46, 38, recent ? 0xFFCC9B52 : 0xFF4FC3F7);
-        context.drawText(textRenderer, Text.literal(summary.name()), x + 62, y + 8, 0xFFFFFF, false);
-        context.drawText(textRenderer, Text.literal("By " + summary.composer() + " | " + summary.folderName()), x + 62, y + 20, 0xBFD8E6, false);
-        context.drawText(textRenderer, Text.literal("Length " + formatMillis(summary.lengthMillis()) + " | Difficulties " + summary.difficultyCount() + " | Updated " + formatDate(summary.lastModifiedMillis())), x + 62, y + 32, 0x9AC7A5, false);
+        drawThumbnailBackground(context, summary, x + 8, y + 6, 46, 38, recent ? 0xFFCC9B52 : 0xFF4FC3F7);
         if (recentBadge) {
             context.fill(x + 62, y + 6, x + 108, y + 16, 0x88CC9B52);
-            context.drawText(textRenderer, Text.literal("RECENT"), x + 68, y + 8, 0xFFFFFF, false);
         }
         context.fill(x + width - 92, y + 12, x + width - 12, y + 36, 0x88407B39);
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal("Open"), x + width - 52, y + 20, 0xFFFFFF);
     }
 
-    private void drawThumbnail(DrawContext context, ProjectSummary summary, int x, int y, int width, int height, int accent) {
+    private void drawProjectCardText(DrawContext context, TextRenderer renderer, ProjectSummary summary, int x, int y, int width, boolean recentBadge) {
+        if (y + 52 < 84 || y > height - 44) {
+            return;
+        }
+        drawThumbnailInitial(context, renderer, summary, x + 8, y + 6, 46, 38);
+        context.drawText(renderer, Text.literal(summary.name()), x + 62, y + 8, 0xFFFFFFFF, false);
+        context.drawText(renderer, Text.literal("By " + summary.composer() + " | " + summary.folderName()), x + 62, y + 20, 0xFFBFD8E6, false);
+        context.drawText(renderer, Text.literal("Length " + formatMillis(summary.lengthMillis()) + " | Difficulties " + summary.difficultyCount() + " | Updated " + formatDate(summary.lastModifiedMillis())), x + 62, y + 32, 0xFF9AC7A5, false);
+        if (recentBadge) {
+            context.drawText(renderer, Text.literal("RECENT"), x + 68, y + 8, 0xFFFFFFFF, false);
+        }
+        context.drawCenteredTextWithShadow(renderer, Text.literal("Open"), x + width - 52, y + 20, 0xFFFFFFFF);
+    }
+
+    private void drawThumbnailBackground(DrawContext context, ProjectSummary summary, int x, int y, int width, int height, int accent) {
         context.fill(x, y, x + width, y + height, 0x88161C24);
         drawOutline(context, x, y, width, height, accent);
-        String initials = summary.name().isBlank() ? "P" : summary.name().substring(0, 1).toUpperCase(Locale.ROOT);
-        context.drawCenteredTextWithShadow(textRenderer, Text.literal(initials), x + width / 2, y + 6, 0xFFFFFF);
         int bars = Math.max(1, Math.min(4, summary.difficultyCount()));
         for (int i = 0; i < bars; i++) {
             int barX = x + 6 + i * 9;
             context.fill(barX, y + height - 10, barX + 6, y + height - 4, accent);
         }
+    }
+
+    private void drawThumbnailInitial(DrawContext context, TextRenderer renderer, ProjectSummary summary, int x, int y, int width, int height) {
+        String initials = summary.name().isBlank() ? "P" : summary.name().substring(0, 1).toUpperCase(Locale.ROOT);
+        context.drawCenteredTextWithShadow(renderer, Text.literal(initials), x + width / 2, y + 6, 0xFFFFFFFF);
     }
 
     private void toggleSort(ButtonWidget button) {
@@ -185,7 +221,7 @@ public class ProjectBrowserScreen extends Screen {
     private ClickTarget findClickTarget(double mouseX, double mouseY) {
         int left = width / 2 - 220;
         int panelWidth = 440;
-        int rowY = 108 - scroll;
+        int rowY = 132 - scroll;
 
         if (searchField.getText().isBlank() && !recentProjects.isEmpty()) {
             for (ProjectSummary summary : recentProjects) {

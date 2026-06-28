@@ -39,6 +39,10 @@ public class ChartProject {
         return levels.get(difficulty);
     }
 
+    public void setLevel(ChartDifficulty difficulty, LevelData level) {
+        levels.put(difficulty, level);
+    }
+
     public Map<ChartDifficulty, LevelData> levels() {
         return levels;
     }

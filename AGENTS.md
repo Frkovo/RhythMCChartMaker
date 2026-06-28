@@ -1,162 +1,198 @@
 # AGENTS.md
 
-## Project Goal
+RhythMCChartMaker is a Fabric client mod that lets charter authors create and preview RhythMC charts. It connects to a RhythMC-Preview Paper server over the `rhythmc:chart_preview` plugin channel for visual playback; the mod plays audio locally.
 
-Build a Fabric client-side RhythMC chart editor mod with:
+## Read First
 
-- full chart editing for song manifest, meta, tracks, notes, effects, and BPM
-- in-world editing / preview support
-- audio playback, sync, and waveform support
-- project creation/loading from the title screen
-- strong semantic compatibility with `E:/Dev/RhythMC-Reborn`
+Before editing, agents should read these files in order:
 
-## User Requirements And Preferences
+- `AGENTS.md`
+- `.agent/CURRENT.md`
+- `.agent/WORKFLOW.md`
+- `.agent/PROJECT.md` when project context is needed
+- `.agent/REPOS.md` when repository paths, commands, or entry points are needed
+- `.agent/CONTRACTS.md` when the `rhythmc:chart_preview` channel, chart parsing, or preview lifecycle may change
+- `specs/active/<task>/` when a task spec exists
 
-- Reborn compatibility matters. Track event semantics should follow Reborn utilities/ChartUtils behavior.
-- Track `Speed`, `X/Y/Z Transform`, `X/Y/Z Rotation`, and `X/Y/Z Scale/Stretch` should each allow only one event per track lane.
-- Note coordinates are center-relative and can be decimal values.
-- Note `X`, `Y`, and `Z` should be edited separately, not packed into one confusing field.
-- The UI should feel closer to an editor such as Visual Maimai / video timeline tools, not a generic debug panel.
-- Important note editing shortcuts are expected: multi-select, copy, cut, paste, move, undo, redo.
-- The user is currently unhappy with the editor UI quality and expects broader rewrites rather than tiny cosmetic patches.
+Use `specs/` for medium/high-risk task planning and handoff. Use `docs/CHANGELOG.md` for completed behavior/workflow records.
 
-## Major Work Completed So Far
+## Repository Map
 
-### Core chart/data/io
+| Area | Path | Responsibility |
+|---|---|---|
+| Chart maker mod | `E:/Dev/RhythMCChartMaker` | This repo. Fabric client mod: chart editor UI, local audio playback, `rhythmc:chart_preview` client sender, chart project IO |
+| Preview plugin | `E:/Dev/RhythMC-Preview` | Paper plugin: chart visual playback, arena paste, file cache, `rhythmc:chart_preview` server receiver/sender |
+| Full-game plugin | `E:/Dev/RhythMC-Reborn` | Reference for chart JSON semantics and gameplay behavior |
+| Agent memory | `E:/Dev/RhythMCChartMaker/.agent` | Current state, workflow, repo map, contracts, checklists |
+| Task specs | `E:/Dev/RhythMCChartMaker/specs` | Backlog, active task specs, handoff, completion records |
 
-- Added chart model classes for manifest, meta, levels, tracks, notes, effects, BPM points, easing, etc.
-- Added chart timing/math helpers such as easing functions, timing timeline, chart math, judge math scaffolding.
-- Added project io for `manifest.yml` and chart difficulty files.
-- Standardized project storage under `.minecraft/projects`.
+## Prime Directive
 
-### Editor state
+This repo is a chart editor. Before adding anything, ask whether it is required for chart editing, audio playback, or preview integration. If it is not, do not add it. Reintroducing server gameplay, network/auth, or resource-pack code is a regression.
 
-- Built `ChartEditorState` to manage:
-  - project create/load/save
-  - active difficulty
-  - selection state
-  - playhead / scroll / zoom
-  - add/delete/move notes, effects, BPM points, tracks
-  - dirty/revision tracking
-- Added editor snapshot/restore support for undo/redo history.
+The two shared contracts are the `rhythmc:chart_preview` plugin channel and the chart JSON format. If either changes (opcodes, payload schema, chunking, lifecycle, trust model, field names, types, defaults), update this repo, the Preview plugin, and the docs in the same task.
 
-### Audio
+### Contract change definition
 
-- Added audio loading/playback support.
-- Added waveform / basic BPM reference analysis.
-- Fixed audio decoding regression by introducing explicit fallback decoders instead of relying only on `AudioSystem` service discovery.
-- Improved audio load error reporting so the UI shows more specific failure details.
+A task crosses a contract boundary when it changes any of these:
 
-### In-world editing and world workflow
+- `rhythmc:chart_preview` plugin channel opcode set, direction, payload schema, chunking protocol, lifecycle, or trust model.
+- Chart JSON parsing semantics (field names, types, defaults) that the Preview plugin's `File/Deserializers/*` also follows.
+- Mod config keys or user workflow.
+- Preview lifecycle behavior (start/stop/restart semantics, clock sync).
 
-- Added world launch / editor world support.
-- Added world display sync / pick helpers.
-- Added in-world display/entity editing support through the world controller/launcher path.
+## Non-Negotiable Rules
 
-### Project/title screens
+### Safety
 
-- Added a title screen entry for RhythMC projects.
-- Added project hub and project browser screens.
-- Added new song/project creation flow.
-- Added recent project handling.
-- Reworked several custom screen render orders after text visibility issues.
+- Never run destructive Git commands: `git revert`, `git rebase`, `git checkout --`, `git reset --hard`, `git push --force`, or equivalent.
+- Do not revert unrelated dirty worktree changes.
+- Do not write backward-compatibility code, migration scripts, or deprecated-schema tracking unless explicitly requested. There is no production data.
+- Do not commit credentials, tokens, secrets, or API keys.
+- If secret material is found in tracked docs or Agent files, remove it from the file and report that the credential should be rotated.
 
-### Timeline/editor UI work
+### Scope Discipline
 
-- Reworked the timeline into labeled lanes instead of a flat strip.
-- Added separate note lanes for `Note X`, `Note Y`, and `Note Z`.
-- Added larger note lanes and center-line visualization.
-- Added event clip selection, edge dragging, and right-click split.
-- Added note multi-select, event clip multi-select, and box select.
-- Added magnetic snapping / snap guide line behavior.
-- Added whole event clip dragging.
-- Added a ruler and zoom bar in the timeline.
-- Switched timeline grid/division lines to beat/BPM-oriented spacing.
+- Do not reintroduce server-side gameplay logic, scoring, stat upload, matchmaking, or parties.
+- Do not add HTTP/WebSocket network code. The only transport is the Bukkit plugin channel.
+- Do not add player auth/session. Server identity = online Bukkit `Player`.
+- Do not add resource pack sending. Audio plays locally; the Preview plugin caches uploaded audio but never plays it.
 
-### Note editing workflow improvements
+### Documentation
 
-- Split note property editing into separate fields for:
-  - `Pos X`, `Pos Y`, `Pos Z`
-  - `Scale X`, `Scale Y`, `Scale Z`
-  - `Rot X`, `Rot Y`, `Rot Z`
-- Added note clipboard/history shortcuts:
-  - `Ctrl+A` select all notes
-  - `Ctrl+C` copy notes
-  - `Ctrl+X` cut notes
-  - `Ctrl+V` paste notes at playhead
-  - `Ctrl+Z` undo
-  - `Ctrl+Y` / `Ctrl+Shift+Z` redo
-  - `Alt+Left/Right` move selected notes by beat step
-  - `Alt+Up/Down` move selected notes between tracks
-  - `Esc` clears note selection
+- Update docs before finishing any completed behavior, config, protocol, or workflow change.
+- When unsure whether docs are needed, update docs.
+- After every completed modification, add a changelog entry to `docs/CHANGELOG.md` using the heading `## yyyy-MM-dd : MOD : 更改内容`.
 
-### Track event editor work
+### Trust
 
-- Replaced raw track event string editing with a row-based editor flow.
-- Added easing picker/search/grouping support for track event lanes.
-- Added track event row copy/delete/reorder attempts.
-- Later aligned track lanes with Reborn semantics so each lane normalizes to a single event.
+- The plugin channel receiver is a Bukkit `Player` currently online on the preview server. No token, no session binding.
+- The mod sends `HELLO` on join; the server validates the protocol version and responds `HELLO_ACK`.
+- The editor only unlocks when `HELLO_ACK.ok = true`.
 
-## Important Discoveries / Fixes
+## Architecture Boundaries
 
-- SnakeYAML crash was caused by incompatible indent/indicator indent configuration. Removing the custom indicator indent fixed it.
-- Minecraft 1.21 screen blur error (`Can only blur once per frame`) happened when background rendering was duplicated. Removing duplicate background handling fixed that issue.
-- AWT file picker was unreliable in-game. Switched to TinyFileDialogs.
-- Editor reopen behavior in-world required explicit close handling and better hotkey edge logic.
-- Reborn track event semantics are not free-form multi-event lanes in practice for these track properties; they should be treated as single-event lanes.
+### This mod owns ONLY
 
-## Visual Maimai Reference
+- Chart editor UI: `ChartEditorScreen`, `ChartEditorState`, timeline, note/track/effect editing, undo/redo.
+- Chart project IO: `manifest.yml` + level JSON files under `.minecraft/projects`.
+- Audio playback: Java Sound with explicit SPI decoders (vorbis, mp3, flac, wav, aiff, au).
+- Plugin channel client: `PreviewClient` + `ChartPreviewPayload` + `ChartPreviewChannel` constants.
+- In-world launcher stub (deprecated; retained during rewrite).
 
-The user explicitly asked to follow Visual Maimai ideas and images:
+### Explicitly out of scope
 
-- doc: `https://visual-maimai-manual.github.io/guide/gui.html`
-- important reference concepts from that doc:
-  - menu-style top controls (`File / Edit / Options`)
-  - note editing shortcuts and clipboard workflow
-  - clearer editor zoning between note tools, preview, and track area
+- Server-side gameplay or visual rendering. The Preview plugin handles visuals.
+- Song audio distribution, resource packs.
+- Scoring, stat records, gameplay record upload.
+- HTTP/WebSocket networking, auth, session management.
+- Economy, unlocks, collections.
+- Matchmaking, parties, rivals, chat, leaderboards.
 
-## Current Code/Behavior State
+## Plugin Channel Contract
 
-- `ChartEditorScreen` has been heavily modified multiple times.
-- `ChartEditorState` now contains snapshot/restore logic for undo/redo.
-- `TitleScreenMixin`, `NewSongWizardScreen`, `ProjectHubScreen`, and `ProjectBrowserScreen` were all edited during UI fixes.
-- The top bar was moved toward a `File / Edit / Options` tabbed/menu-like layout.
-- Note properties were split into separate XYZ fields.
-- Timeline note lanes no longer intentionally draw long per-note text strings on every note block.
+The only contract: `rhythmc:chart_preview` (bidirectional Bukkit plugin channel).
 
-## Current Known Problems / Risks
+- Direction C→S: `HELLO`, `CHART_LOAD` (chunked if large), `PREVIEW_START`, `PREVIEW_STOP`, `PREVIEW_RESTART`, `FILE_UPLOAD_*`.
+- Direction S→C: `HELLO_ACK`, `CHART_LOAD_ACK`, `PREVIEW_READY`, `PREVIEW_STOPPED`, `ERROR`, `FILE_UPLOAD_ACK`.
+- Payload: raw bytes with big-endian `int` opcode prefix; strings are `int byteLength + UTF-8 bytes`.
+- Trust: any online `Player` sender. No token.
+- Lifecycle: HELLO → optional FILE_UPLOAD → LOAD → START → READY → STOP/reSTART.
 
-These are the most important current risks and unresolved issues known from the conversation:
+Full opcode table and encoding details in `.agent/CONTRACTS.md`.
 
-- The user still considers the UI bad and not sufficiently rewritten.
-- Several custom screens previously showed panels but missing text due to render order/layering problems. Some fixes were applied, but in-game visual validation is still required.
-- The easing popup had repeated visibility/layout problems. Multiple fixes were attempted, but this area should still be treated as fragile until visually confirmed in-game.
-- `ChartEditorScreen` has accumulated many iterative edits and should likely be simplified/restructured instead of patched further.
-- The top menu is only a tabbed/menu-like replacement right now, not a full dropdown menu system yet.
-- Visual consistency across title/project/editor screens is still not trustworthy without manual in-game review.
+## Cross-Repo Contract Map
 
-## Files Most Recently Involved
+When modifying one of these, inspect and update every listed area.
+
+| Contract | Main identifiers | Affected areas |
+|---|---|---|
+| `rhythmc:chart_preview` channel | Opcodes 1–11, 101–106, `ChartPreviewChannel`, `PreviewClient` | ChartMaker ↔ Preview ↔ Docs |
+| Chart JSON format | `manifest.yml`, level JSON fields (tracks, notes, effects, events) | ChartMaker ↔ Preview ↔ Reborn (reference) |
+
+## Mod Rules
+
+- Use Fabric Loom's `splitEnvironmentSourceSets()`. Client-only code belongs in `src/client/`.
+- Register custom payload types and global receivers in `RmcChartClient.onInitializeClient()`.
+- Keep `ChartEditorState` as the single source of truth for editor state; use snapshot/restore for undo/redo.
+- Audio decoding uses explicit SPI fallback chain. Do not rely solely on `AudioSystem` service discovery.
+- Chart project IO must produce files compatible with the Preview plugin's `File/Deserializers/*`.
+- Keep screen rendering order in mind. Avoid duplicate background handling (`Can only blur once per frame`).
+- Plugin channel opcode constants in `ChartPreviewChannel.java` must match the Preview plugin's `ChartPreviewChannel` exactly.
+- Do not hardcode plugin-facing messages. Prefer `Text.literal()` with descriptive prefixes like `"RhythMCChartMaker: "`.
+
+## Start Here by Task Type
+
+### Editor UI / timeline
 
 - `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/editor/ChartEditorScreen.java`
 - `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/editor/ChartEditorState.java`
-- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/project/ProjectBrowserScreen.java`
-- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/project/ProjectHubScreen.java`
-- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/wizard/NewSongWizardScreen.java`
-- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/mixin/client/TitleScreenMixin.java`
+- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/project/`
+- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/wizard/`
 
-## Current Workspace Notes
+### Plugin channel / preview transport
 
-- No `AGENTS.md` existed before this file was created.
-- The workspace has uncommitted UI/editor changes.
-- There is also an untracked `.tmp-jgui/` directory left in the repo root.
-- Repeated verification command used during this session: `./gradlew compileClientJava`
-- Latest compile status before writing this file: successful.
+- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/net/PreviewClient.java`
+- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/net/ChartPreviewChannel.java`
+- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/net/ChartPreviewPayload.java`
 
-## Recommended Next Direction
+### Client lifecycle / entrypoints
 
-If work continues, the safest next step is not more patching on top of the current UI. The recommended path is:
+- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/client/RmcChartClient.java`
+- `src/client/java/cn/frkovo/rhythmcv2/rmcChart/mixin/client/`
 
-1. fully redesign `ChartEditorScreen` layout around three clear zones: tools/menu, preview, timeline/inspector
-2. keep note XYZ editing separate everywhere
-3. keep track property lanes as single-event inspector cards instead of pseudo-table clutter
-4. validate every rewritten screen in-game before assuming text/layering is fixed
+### Chart model / IO
+
+- `src/main/java/cn/frkovo/rhythmcv2/rmcChart/chart/`
+
+## Build and Validation Commands
+
+```text
+# Chart maker mod
+./gradlew compileClientJava
+
+# Preview plugin (when channel changes)
+cd E:/Dev/RhythMC-Preview && mvn compile
+```
+
+## Schema Registry Summary
+
+The full opcode/contract schema lives in `.agent/CONTRACTS.md`. This summary identifies the affected contract group quickly.
+
+### Plugin Channel Opcode Groups
+
+| Direction | Opcodes | Purpose |
+|---|---|---|
+| C→S | `HELLO` (1), `CHART_LOAD` (2), `CHART_LOAD_CHUNK_*` (6–8) | Handshake & chart transfer |
+| C→S | `PREVIEW_START/STOP/RESTART` (3–5) | Preview lifecycle control |
+| C→S | `FILE_UPLOAD_START/CHUNK/END` (9–11) | Schematic/audio upload |
+| S→C | `HELLO_ACK` (101), `CHART_LOAD_ACK` (102), `PREVIEW_READY` (103), `PREVIEW_STOPPED` (104) | Lifecycle confirmation |
+| S→C | `ERROR` (105), `FILE_UPLOAD_ACK` (106) | Error & upload status |
+
+### Payload Encoding
+
+All opcodes use big-endian `int` prefix. Strings are `int byteLength + UTF-8 bytes`. Chunks encode `int byteLength + raw bytes`. No Java `writeUTF`, no Minecraft varint/`writeString`.
+
+## Known Caveats
+
+- The user considers the editor UI still not sufficiently rewritten. `ChartEditorScreen` has accumulated many iterative patches.
+- Several custom screens previously had text visibility issues due to render order/layering. Validate in-game after screen changes.
+- The easing popup is fragile after repeated layout fixes.
+- `ChartEditorScreen` should likely be restructured, not further patched.
+- The top menu is a tabbed replacement, not a full dropdown menu system yet.
+- All three repos (`RhythMCChartMaker`, `RhythMC-Preview`, `RhythMC-Reborn`) may have dirty worktrees mid-refactor.
+- `docs/CHANGELOG.md` and `.agent/` files may drift from actual behavior. When in doubt, inspect code.
+- The `EditorWorldLauncher` is a deprecated stub retained during the rewrite. Do not rely on its methods.
+
+## Finish Checklist
+
+Before finishing, verify all applicable items:
+
+- All affected repositories were inspected and updated for channel/contract changes.
+- Docs were updated.
+- `docs/CHANGELOG.md` entry was added using `## yyyy-MM-dd : MOD : 更改内容`.
+- Plugin channel opcodes match between `ChartPreviewChannel.java` and the Preview plugin.
+- Chart JSON serialization stays compatible with Preview plugin `File/Deserializers/*`.
+- No server gameplay / auth / resource-pack code was reintroduced.
+- `./gradlew compileClientJava` was run when feasible.
+- Residual risk and unverified paths were reported clearly.

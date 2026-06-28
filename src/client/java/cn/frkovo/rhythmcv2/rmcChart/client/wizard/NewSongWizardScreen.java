@@ -20,7 +20,7 @@ public class NewSongWizardScreen extends Screen {
     private TextFieldWidget folderField;
     private TextFieldWidget descriptionField;
     private TextFieldWidget songPathField;
-    private String status = "Fill song info, then create the editor world.";
+    private String status = "Fill song info, then create the preview project.";
     private Path selectedSongPath;
     private boolean autoFolder = true;
     private boolean suppressFolderChange;
@@ -61,7 +61,7 @@ public class NewSongWizardScreen extends Screen {
                 .dimensions(left + panelWidth - 92, top + 180, 92, 20)
                 .build());
 
-        addDrawableChild(ButtonWidget.builder(Text.literal("Create World"), button -> createWorld())
+        addDrawableChild(ButtonWidget.builder(Text.literal("Create Project"), button -> createWorld())
                 .dimensions(left, top + 222, 174, 20)
                 .build());
         addDrawableChild(ButtonWidget.builder(Text.literal("Cancel"), button -> close())
