@@ -1,5 +1,52 @@
 # Changelog
 
+## 2026-06-30 : MOD : 音频波形、事件 Clip 缩放、Scene Map 网格与缩放
+
+- 提高音频波形解析度：`AudioAnalysisService.WAVEFORM_BINS` 从 512 提升到 2048，时间轴音频条显示更细腻。
+- 修复事件 Clip 边缘缩放手柄检测失效的问题：以边缘 8px/中心 12px 阈值分别命中，避免绝对距离与平方距离混用导致手柄识别错误。
+- 修复时间轴右键添加 Note 总是使用红线（播放头）位置的问题：现在优先在鼠标点击位置添加，仅在点击位置非法时回退到播放头。
+- Scene Map 增加网格与 Desmos 式缩放：
+  - 根据可视范围自适应主/次网格线疏密，并在主网格线上绘制世界坐标标签。
+  - 坐标轴改为加粗中心线，X/Y 方向均可见。
+  - 在 Scene Map 区域滚动鼠标滚轮可缩放（0.25x - 8x），防止 zoom 过小导致网格消失。
+  - 拖拽 Note / Effect 时自动吸附到最近的网格交点。
+- 修复 Scene Map 底部 Z- / Z+ / Center 按钮与提示文字重叠的问题。
+- `./gradlew compileClientJava` passes.
+
+- 参考 MajDataEdit，在当前模块化编辑器中重新实现统一 Notes lane：
+  - 每个展开的 Track 只保留一个 **Notes** lane，替代原来的 X/Y/Z 三条 lane。
+  - Note 按 `(x, y)` 极角 `atan2(y, x) / π` 做 2D->1D 投影，垂直位置反映 Note 在场景平面上的方向。
+- 拖动 Note 时水平改 beat，垂直改投影方向：按角度旋转 `(x, y)`，保持到中心距离不变；半径为 0 时位置不变。
+- 更新 `EditorTimeline`、`EditorDragHandler`、`EditorUtils`、`NoteDragSnapshot`、`LaneType` 以支持投影绘制、命中检测、框选和拖动。
+- Track 默认事件补齐：每个 Track 默认包含 Speed（8.0）、Position（0,0,0）、Rotation（0,0,0）、Scale（1,1,1）的单一 NumEvent。
+- 在 `TrackData.createDefault` 中生成全部默认事件；新增 `TrackData.ensureDefaultEvents()`，在加载、复制、排序归一化时自动补齐缺失事件。
+- Inspector 中 Clear/Reset Track 事件时重置为对应默认值，而不是清空事件列表。
+- `./gradlew compileClientJava` passes.
+
+## 2026-06-29 : MOD : 在重构拆分后的编辑器代码上修复交互问题并补充快捷键
+
+- 修复时间轴框选释放后因 `applySelectionBox()` 处理异常导致的选择框残留问题。
+- 修复 GUI 内 **Space** 播放/暂停（及 R 等注册快捷键）不响应的问题：改用 `KeyBinding.matchesKey(KeyInput)` + `consumedKeyCodes` 去重。
+- 精简顶部 Preview 面板：移除 Server/Chart/Preview/Range/BPM 状态说明框，改为四个传输按钮 + 当前 beat/音频信息。
+- 修复 `EditorChrome` 中 `drawLeftPanel` 和 `drawPropertyPanel` 方法误删导致的编译错误。
+- 补充常用 GUI 快捷键：
+  - **Ctrl+D**：复制当前选中的 Note / Effect。
+  - **Backspace**：与 Delete 一样删除当前选中。
+  - **Home/End**：播放头跳到谱面起点 / 终点。
+  - **PageUp/PageDown**：在时间轴轨道列表中上下翻页。
+  - **+/-**：缩放时间轴。
+- 修复 Track / Note / Effect / BPM 删除后未生成历史快照的问题，现在 **Ctrl+Z** 可以回退删除操作。
+- `./gradlew compileClientJava` passes。
+
+## 2026-06-30 : MOD : 编辑器大文件拆分与工具类整合
+
+- 将 `EditorPropertyPanel` 中的 Track Event 编辑器与 Easing Popup 逻辑提取到新的包私有类 `EditorTrackEventPanel`。
+- 将 `EditorDragHandler` 中的 Scene Map 交互逻辑提取到新的 `EditorSceneMap`。
+- 把重复的音符轴/轨道 Lane、格式化、序列化、深拷贝、层级排序等辅助方法统一迁移到 `EditorUtils`、`ChartProjectCopier`、`EditorLevelSorter`。
+- 修复因拆分导致的 `NoteAxis`、`DragMode` 引用与 Group Name Popup 方法缺失等编译错误。
+- 所有编辑器源文件当前均控制在 1000 行以内。
+- 不改变 `rhythmc:chart_preview` 通道、Chart JSON 格式或任何 gameplay 行为。
+
 ## 2026-06-28 : MOD : 时间轴 FX Track 重写与编辑分组
 
 - 将 Effects 从时间轴顶部移到独立的底部 **FX Track**，永远存在，可展开/折叠。

@@ -19,6 +19,7 @@ import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.AudioAnalysisService;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.PreviewAutoSoundScheduler;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.SongAudioPlayer;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.SongAudioResolver;
+import cn.frkovo.rhythmcv2.rmcChart.client.editor.model.ChartProjectCopier;
 import cn.frkovo.rhythmcv2.rmcChart.client.project.ProjectStorage;
 
 import java.io.IOException;
@@ -230,8 +231,8 @@ public class ChartEditorState {
                 currentBpm(),
                 playheadBeat,
                 playheadTick(),
-                formatDuration(playheadMillis),
-                formatDuration(totalDurationMillis()));
+                EditorUtils.formatDuration(playheadMillis),
+                EditorUtils.formatDuration(totalDurationMillis()));
     }
 
     public AudioAnalysis audioAnalysis() {
@@ -303,9 +304,9 @@ public class ChartEditorState {
                 playing = false;
                 audioPlayer.pause();
                 syncAudio(true);
-                setStatus("Playback reached Out @ " + formatBeat(playbackEndBeat));
+                setStatus("Playback reached Out @ " + EditorUtils.formatBeat(playbackEndBeat));
             }
-            keepPlayheadVisible();
+            EditorUtils.keepPlayheadVisible(this);
         }
         autoSoundScheduler.tick(this);
         lastTickNanos = now;
@@ -341,20 +342,20 @@ public class ChartEditorState {
     }
 
     public void setPlaybackStartBeat(double beat) {
-        playbackStartBeat = clampPlaybackBeat(beat);
+        playbackStartBeat = EditorUtils.clampPlaybackBeat(beat);
         if (hasPlaybackEndBeat() && playbackEndBeat <= playbackStartBeat) {
             playbackEndBeat = Double.NaN;
         }
-        setStatus("Playback In @ " + formatBeat(playbackStartBeat));
+        setStatus("Playback In @ " + EditorUtils.formatBeat(playbackStartBeat));
     }
 
     public void setPlaybackEndBeat(double beat) {
-        double endBeat = clampPlaybackBeat(beat);
+        double endBeat = EditorUtils.clampPlaybackBeat(beat);
         if (endBeat <= playbackStartBeat) {
             playbackStartBeat = Math.max(-64.0, endBeat - 4.0);
         }
         playbackEndBeat = endBeat;
-        setStatus("Playback Out @ " + formatBeat(playbackEndBeat));
+        setStatus("Playback Out @ " + EditorUtils.formatBeat(playbackEndBeat));
     }
 
     public void clearPlaybackEndBeat() {
@@ -369,7 +370,7 @@ public class ChartEditorState {
     }
 
     public void startPlaybackAt(double beat, String status) {
-        playheadBeat = clampPlaybackBeat(beat);
+        playheadBeat = EditorUtils.clampPlaybackBeat(beat);
         playheadMillis = timing().beatToMillis(playheadBeat);
         playing = true;
         lastTickNanos = System.nanoTime();
@@ -385,10 +386,10 @@ public class ChartEditorState {
     }
 
     public void seekToBeat(double beat) {
-        playheadBeat = clampPlaybackBeat(beat);
+        playheadBeat = EditorUtils.clampPlaybackBeat(beat);
         playheadMillis = timing().beatToMillis(playheadBeat);
         syncAudio(true);
-        keepPlayheadVisible();
+        EditorUtils.keepPlayheadVisible(this);
     }
 
     public void seekByMillis(long deltaMillis) {
@@ -406,6 +407,10 @@ public class ChartEditorState {
         visibleStartBeat = Math.max(-64.0, visibleStartBeat + deltaBeat);
     }
 
+    public void setVisibleStartBeat(double beat) {
+        visibleStartBeat = Math.max(-64.0, beat);
+    }
+
     public void zoom(double factor) {
         double next = beatsPerScreen * factor;
         setBeatsPerScreen(next);
@@ -413,7 +418,7 @@ public class ChartEditorState {
 
     public void setBeatsPerScreen(double beatsPerScreen) {
         this.beatsPerScreen = Math.max(4.0, Math.min(128.0, beatsPerScreen));
-        keepPlayheadVisible();
+        EditorUtils.keepPlayheadVisible(this);
     }
 
     public void loadProject(Path path) {
@@ -479,7 +484,7 @@ public class ChartEditorState {
 
     public void startServerPreviewAudio(double beat) {
         serverPreviewRunning = true;
-        startPlaybackAt(beat, "Server preview playing @ " + formatBeat(beat));
+        startPlaybackAt(beat, "Server preview playing @ " + EditorUtils.formatBeat(beat));
         autoSoundScheduler.reset(this, beat);
     }
 
@@ -572,7 +577,7 @@ public class ChartEditorState {
             audioPath = resolved.get();
             audioAnalysis = AudioAnalysisService.analyze(resolved.get());
             audioStatus = audioAnalysis.hasEstimatedBpm()
-                    ? "Loaded audio | BPM ref " + formatBeat(audioAnalysis.estimatedBpm())
+                    ? "Loaded audio | BPM ref " + EditorUtils.formatBeat(audioAnalysis.estimatedBpm())
                     : "Loaded audio";
             syncAudio(true);
         } catch (Exception exception) {
@@ -597,7 +602,7 @@ public class ChartEditorState {
         }
         bpm.setBpm(audioAnalysis.estimatedBpm());
         markDirty();
-        setStatus("Applied BPM reference: " + formatBeat(audioAnalysis.estimatedBpm()));
+        setStatus("Applied BPM reference: " + EditorUtils.formatBeat(audioAnalysis.estimatedBpm()));
         return true;
     }
 
@@ -630,7 +635,7 @@ public class ChartEditorState {
         sortCurrentLevel();
         selection = EditorSelection.note(track, note);
         markDirty();
-        setStatus("Added note at beat " + formatBeat(note.beat()));
+        setStatus("Added note at beat " + EditorUtils.formatBeat(note.beat()));
         return note;
     }
 
@@ -640,7 +645,7 @@ public class ChartEditorState {
         sortCurrentLevel();
         selection = EditorSelection.effect(effect);
         markDirty();
-        setStatus("Added effect at beat " + formatBeat(effect.beat()));
+        setStatus("Added effect at beat " + EditorUtils.formatBeat(effect.beat()));
         return effect;
     }
 
@@ -650,7 +655,7 @@ public class ChartEditorState {
         sortCurrentLevel();
         selection = EditorSelection.bpm(bpm);
         markDirty();
-        setStatus("Added BPM point at beat " + formatBeat(bpm.beat()));
+        setStatus("Added BPM point at beat " + EditorUtils.formatBeat(bpm.beat()));
         return bpm;
     }
 
@@ -856,38 +861,7 @@ public class ChartEditorState {
     }
 
     public void sortCurrentLevel() {
-        level().tracks().sort(Comparator.comparingInt(TrackData::id));
-        expandedTrackIds.retainAll(level().tracks().stream().map(TrackData::id).collect(java.util.stream.Collectors.toSet()));
-        expandedTrackEventGroups.keySet().retainAll(level().tracks().stream().map(TrackData::id).collect(java.util.stream.Collectors.toSet()));
-        for (TrackData track : level().tracks()) {
-            normalizeSingleTrackEvent(track.speedEvents());
-            normalizeSingleTrackEvent(track.xTransformEvents());
-            normalizeSingleTrackEvent(track.yTransformEvents());
-            normalizeSingleTrackEvent(track.zTransformEvents());
-            normalizeSingleTrackEvent(track.xRotateEvents());
-            normalizeSingleTrackEvent(track.yRotateEvents());
-            normalizeSingleTrackEvent(track.zRotateEvents());
-            normalizeSingleTrackEvent(track.xScaleEvents());
-            normalizeSingleTrackEvent(track.yScaleEvents());
-            normalizeSingleTrackEvent(track.zScaleEvents());
-            track.notes().sort(Comparator.comparingDouble(NoteData::beat));
-        }
-        level().effects().sort(Comparator.comparingDouble(EffectData::beat));
-        level().meta().bpms().sort(Comparator.comparingDouble(BpmPoint::beat));
-    }
-
-    private void sortEvents(List<NumEventData> events) {
-        events.sort(Comparator.comparingDouble(NumEventData::startBeat));
-    }
-
-    private void normalizeSingleTrackEvent(List<NumEventData> events) {
-        sortEvents(events);
-        if (events.size() <= 1) {
-            return;
-        }
-        NumEventData first = events.getFirst();
-        events.clear();
-        events.add(first);
+        EditorLevelSorter.sortCurrentLevel(level(), expandedTrackIds, expandedTrackEventGroups);
     }
 
     private void ensureSelectionValid() {
@@ -912,19 +886,6 @@ public class ChartEditorState {
         if (selection.kind() == EditorSelection.Kind.BPM && !level().meta().bpms().contains(selection.bpm())) {
             selection = EditorSelection.meta();
         }
-    }
-
-    private void keepPlayheadVisible() {
-        if (playheadBeat < visibleStartBeat + 1.0) {
-            visibleStartBeat = playheadBeat - 1.0;
-        } else if (playheadBeat > visibleStartBeat + beatsPerScreen - 1.0) {
-            visibleStartBeat = playheadBeat - beatsPerScreen + 1.0;
-        }
-        visibleStartBeat = Math.max(-64.0, visibleStartBeat);
-    }
-
-    private String formatBeat(double beat) {
-        return String.format(java.util.Locale.ROOT, "%.3f", beat);
     }
 
     private SelectionSnapshot captureSelection() {
@@ -989,104 +950,7 @@ public class ChartEditorState {
     }
 
     private ChartProject copyProject(ChartProject source) {
-        EnumMap<ChartDifficulty, LevelData> levels = new EnumMap<>(ChartDifficulty.class);
-        for (Map.Entry<ChartDifficulty, LevelData> entry : source.levels().entrySet()) {
-            levels.put(entry.getKey(), copyLevel(entry.getValue()));
-        }
-        return new ChartProject(source.projectPath(), copyManifest(source.manifest()), levels);
-    }
-
-    private SongManifestData copyManifest(SongManifestData source) {
-        SongManifestData manifest = SongManifestData.createDefault();
-        manifest.setName(source.name());
-        manifest.setComposer(source.composer());
-        manifest.setIcon(source.icon());
-        manifest.setAlias(source.alias());
-        manifest.setLength(source.length());
-        manifest.setRespackSha1(source.respackSha1());
-        manifest.setKey(source.key());
-        manifest.setDescription(source.description());
-        manifest.setSongId(source.songId());
-        manifest.setVersion(source.version());
-        manifest.comments().addAll(source.comments());
-        manifest.playerAlias().addAll(source.playerAlias());
-        manifest.tags().addAll(source.tags());
-        copyMapList(source.unlockSong(), manifest.unlockSong());
-        copyMapList(source.unlockWorld(), manifest.unlockWorld());
-        copyMapList(source.unlockNether(), manifest.unlockNether());
-        copyMapList(source.unlockVoid(), manifest.unlockVoid());
-        return manifest;
-    }
-
-    private void copyMapList(List<Map<String, Object>> source, List<Map<String, Object>> target) {
-        target.clear();
-        for (Map<String, Object> map : source) {
-            target.add(new LinkedHashMap<>(map));
-        }
-    }
-
-    private LevelData copyLevel(LevelData source) {
-        LevelData level = new LevelData(copyMeta(source.meta()));
-        for (TrackData track : source.tracks()) {
-            level.tracks().add(copyTrack(track));
-        }
-        for (EffectData effect : source.effects()) {
-            level.effects().add(copyEffect(effect));
-        }
-        return level;
-    }
-
-    private MetaData copyMeta(MetaData source) {
-        MetaData meta = new MetaData(source.uid(), source.initialArena(), source.offset(), source.level());
-        meta.charters().addAll(source.charters());
-        meta.comments().addAll(source.comments());
-        for (BpmPoint bpm : source.bpms()) {
-            meta.bpms().add(copyBpm(bpm));
-        }
-        return meta;
-    }
-
-    private TrackData copyTrack(TrackData source) {
-        TrackData track = new TrackData(source.id());
-        track.setBeatDivision(source.beatDivision());
-        copyEvents(source.speedEvents(), track.speedEvents());
-        copyEvents(source.xTransformEvents(), track.xTransformEvents());
-        copyEvents(source.yTransformEvents(), track.yTransformEvents());
-        copyEvents(source.zTransformEvents(), track.zTransformEvents());
-        copyEvents(source.xRotateEvents(), track.xRotateEvents());
-        copyEvents(source.yRotateEvents(), track.yRotateEvents());
-        copyEvents(source.zRotateEvents(), track.zRotateEvents());
-        copyEvents(source.xScaleEvents(), track.xScaleEvents());
-        copyEvents(source.yScaleEvents(), track.yScaleEvents());
-        copyEvents(source.zScaleEvents(), track.zScaleEvents());
-        for (NoteData note : source.notes()) {
-            track.notes().add(copyNote(note));
-        }
-        return track;
-    }
-
-    private void copyEvents(List<NumEventData> source, List<NumEventData> target) {
-        target.clear();
-        for (NumEventData event : source) {
-            target.add(copyEvent(event));
-        }
-    }
-
-    private NumEventData copyEvent(NumEventData source) {
-        return new NumEventData(source.startBeat(), source.endBeat(), source.startValue(), source.endValue(), source.easingType());
-    }
-
-    private NoteData copyNote(NoteData source) {
-        return new NoteData(source.noteType(), source.beat(), source.pos().copy(), source.scale().copy(), source.rotation().copy(), source.holdGroup(), source.holdLengthBeats());
-    }
-
-    private EffectData copyEffect(EffectData source) {
-        JsonObject properties = source.properties() == null ? new JsonObject() : source.properties().deepCopy();
-        return new EffectData(source.effectType(), source.beat(), properties);
-    }
-
-    private BpmPoint copyBpm(BpmPoint source) {
-        return new BpmPoint(source.beat(), source.bpm());
+        return ChartProjectCopier.copyProject(source);
     }
 
     private void resetExpandedTracks() {
@@ -1095,22 +959,6 @@ public class ChartEditorState {
         for (TrackData track : level().tracks()) {
             expandedTrackIds.add(track.id());
         }
-    }
-
-    private double clampPlaybackBeat(double beat) {
-        if (!Double.isFinite(beat)) {
-            return 0.0;
-        }
-        return Math.max(-64.0, beat);
-    }
-
-    private String formatDuration(long millis) {
-        long safe = Math.max(0L, millis);
-        long totalSeconds = safe / 1000L;
-        long minutes = totalSeconds / 60L;
-        long seconds = totalSeconds % 60L;
-        long hundredths = (safe % 1000L) / 10L;
-        return String.format(java.util.Locale.ROOT, "%02d:%02d.%02d", minutes, seconds, hundredths);
     }
 
     private void syncAudio(boolean forceSeek) {

@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class AudioAnalysisService {
-    private static final int WAVEFORM_BINS = 512;
+    private static final int WAVEFORM_BINS = 2048;
     private static final int WINDOW_FRAMES = 1024;
 
     private AudioAnalysisService() {

@@ -25,10 +25,49 @@ public class TrackData {
     public static TrackData createDefault(int id) {
         TrackData track = new TrackData(id);
         track.speedEvents.add(new NumEventData(0.0, 4096.0, 8.0, 8.0, EasingType.LINEAR));
+        track.xTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        track.yTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        track.zTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        track.xRotateEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        track.yRotateEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        track.zRotateEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
         track.xScaleEvents.add(new NumEventData(0.0, 4096.0, 1.0, 1.0, EasingType.LINEAR));
         track.yScaleEvents.add(new NumEventData(0.0, 4096.0, 1.0, 1.0, EasingType.LINEAR));
         track.zScaleEvents.add(new NumEventData(0.0, 4096.0, 1.0, 1.0, EasingType.LINEAR));
         return track;
+    }
+
+    public void ensureDefaultEvents() {
+        if (speedEvents.isEmpty()) {
+            speedEvents.add(new NumEventData(0.0, 4096.0, 8.0, 8.0, EasingType.LINEAR));
+        }
+        if (xTransformEvents.isEmpty()) {
+            xTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        }
+        if (yTransformEvents.isEmpty()) {
+            yTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        }
+        if (zTransformEvents.isEmpty()) {
+            zTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        }
+        if (xRotateEvents.isEmpty()) {
+            xRotateEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        }
+        if (yRotateEvents.isEmpty()) {
+            yRotateEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        }
+        if (zRotateEvents.isEmpty()) {
+            zRotateEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
+        }
+        if (xScaleEvents.isEmpty()) {
+            xScaleEvents.add(new NumEventData(0.0, 4096.0, 1.0, 1.0, EasingType.LINEAR));
+        }
+        if (yScaleEvents.isEmpty()) {
+            yScaleEvents.add(new NumEventData(0.0, 4096.0, 1.0, 1.0, EasingType.LINEAR));
+        }
+        if (zScaleEvents.isEmpty()) {
+            zScaleEvents.add(new NumEventData(0.0, 4096.0, 1.0, 1.0, EasingType.LINEAR));
+        }
     }
 
     public int id() {

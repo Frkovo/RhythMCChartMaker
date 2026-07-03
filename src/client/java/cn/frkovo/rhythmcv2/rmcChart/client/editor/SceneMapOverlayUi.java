@@ -21,7 +21,7 @@ final class SceneMapOverlayUi {
         drawOutline(context, model.x(), model.y(), model.width(), model.height(), borderColor);
         context.drawText(textRenderer, Text.literal(model.titleLine()), model.x() + 6, model.y() + 6, textColor, false);
         if (model.detailLine() != null && !model.detailLine().isBlank()) {
-            context.drawText(textRenderer, Text.literal(model.detailLine()), model.x() + 6, model.y() + 17, detailColor, false);
+            context.drawText(textRenderer, Text.literal(model.detailLine()), model.x() + 6, model.y() + 12, detailColor, false);
         }
         for (Button button : model.buttons()) {
             context.fill(button.x(), button.y(), button.x() + button.width(), button.y() + button.height(), 0x66303A44);

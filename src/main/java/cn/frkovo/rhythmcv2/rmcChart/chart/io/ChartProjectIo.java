@@ -218,6 +218,7 @@ public final class ChartProjectIo {
         loadNumEvents(track.xScaleEvents(), trackObject.get("xScaleEvents"));
         loadNumEvents(track.yScaleEvents(), trackObject.get("yScaleEvents"));
         loadNumEvents(track.zScaleEvents(), trackObject.get("zScaleEvents"));
+        track.ensureDefaultEvents();
         JsonArray notes = trackObject.has("notes") && trackObject.get("notes").isJsonArray() ? trackObject.getAsJsonArray("notes") : new JsonArray();
         for (JsonElement element : notes) {
             if (!element.isJsonObject()) {

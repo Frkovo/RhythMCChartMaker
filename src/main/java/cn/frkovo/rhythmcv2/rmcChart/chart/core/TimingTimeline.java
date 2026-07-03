@@ -55,6 +55,11 @@ public class TimingTimeline {
         return target.beat() + (time - target.timeMillis()) * target.bpm() / 60000.0;
     }
 
+    public double bpmAt(double beat) {
+        Entry entry = findBpmByBeat(beat);
+        return entry == null ? 120.0 : entry.bpm();
+    }
+
     private Entry findBpmByBeat(double beat) {
         int low = 0;
         int high = bpmList.size() - 1;
