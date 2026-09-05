@@ -15,8 +15,6 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 
-import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.util.*;
 
 final class EditorMiscActions {
@@ -28,19 +26,6 @@ final class EditorMiscActions {
 
     EditorMiscActions(ChartEditorScreen screen) {
         this.screen = screen;
-    }
-
-    private Path parsePath() {
-        String text = screen.pathField.getText().trim();
-        if (text.isBlank()) {
-            return null;
-        }
-        try {
-            return Path.of(text);
-        } catch (InvalidPathException exception) {
-            screen.state.setStatus("Invalid project path: " + text);
-            return null;
-        }
     }
 
     void openGroupNamePopup() {
@@ -101,32 +86,8 @@ final class EditorMiscActions {
         closeGroupNamePopup();
     }
 
-    void newProject() {
-        Path path = parsePath();
-        if (path != null) {
-            screen.state.newProject(path);
-            screen.pathField.setText(path.toString());
-            screen.selectionManager.clearTimelineSelections();
-            screen.history.resetHistorySnapshots();
-        }
-    }
-
-    void loadProject() {
-        Path path = parsePath();
-        if (path != null) {
-            screen.state.loadProject(path);
-            screen.pathField.setText(path.toString());
-            screen.selectionManager.clearTimelineSelections();
-            screen.history.resetHistorySnapshots();
-        }
-    }
-
     void saveProject() {
-        Path path = parsePath();
-        if (path != null) {
-            screen.state.saveProject(path);
-            screen.pathField.setText(path.toString());
-        }
+        screen.state.saveProject(screen.state.project().projectPath());
     }
 
     void openNewProjectWizard() {
@@ -178,35 +139,7 @@ final class EditorMiscActions {
     }
 
     void stopPlaybackFromToolbar() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null && RmcChartClient.getWorldLauncher().isEditorWorldActive(client)) {
-            RmcChartClient.getWorldLauncher().stopWorldPlayback();
-        } else {
-            screen.state.stopPlayback();
-        }
-    }
-
-    void toggleWorldAutoPlay() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null && RmcChartClient.getWorldLauncher().isEditorWorldActive(client)) {
-            boolean next = !RmcChartClient.getWorldLauncher().playbackEngine().isAutoPlay();
-            RmcChartClient.getWorldLauncher().setWorldPlaybackAutoPlay(next);
-        }
-    }
-
-    void syncWorldDisplays() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null && client.world != null) {
-            RmcChartClient.getWorldLauncher().syncDisplays();
-            screen.state.setStatus("Synced in-world display entities");
-        }
-    }
-
-    void pickWorldDisplay() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null && client.world != null && RmcChartClient.getWorldLauncher().pickLookTarget()) {
-            screen.propertyPanel.populateFieldsFromSelection();
-        }
+        screen.state.stopPlayback();
     }
 
     void selectSong() {

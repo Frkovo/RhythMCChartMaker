@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-09-05 : MOD : 标尺壳元数据发送 + SceneMap/世界壳 stub 删除
+
+- `SongManifestData` 新增 `beatsPerBar`（默认 4，1..32 钳制）；`toOrderedMap` 末尾加 `editor:{beatsPerBar}` 块（manifest.yml 持久化 + 上传 JSON 自动携带）；`ChartProjectIo.loadManifest` 回读；`toManifestJson` 新增 `(data, activeTrackId)` 重载往 editor 块注入 activeTrackId（文件保存不用此重载）；`serializeCurrentChart` 改调重载（active 取 selectedTrack()，非 TRACK/NOTE 选择时回退首轨）。
+- `MetaEditorScreen` Song Manifest 区 Version 后加 "Beats Per Bar" 字段（hint 1-32），populateFields 回填、apply() 经 parseInt + setter 写入。
+- `ChartEditorState.setSelection` 加中央钩子：仅新 selection 为 TRACK/NOTE 且 track id 变化时发 `PreviewClient.sendEditorSelect('shell:track='+id)`（sendEditorSelect 内部 ensureReady 静默守卫，切轨即重染壳）。
+- 删除：`EditorWorldLauncher.java`（stub）、`EditorSceneMap.java`、`SceneMapOverlayUi.java`；`DragMode` 删 MAP_NOTE/MAP_EFFECT/WORLD_SELECTION；`ChartEditorScreen` 删 MAP_OVERLAY 常量/sceneMap/sceneMapZoom/map 拖拽源/map zoom/close() 的 onEditorClosed；`EditorChrome` 左栏改直排 Tracks，删 drawCurrentFrameMap 系列 + drawPreviewDepthBand/drawPreviewNoteGlyph/drawSchematicEditorOverlay/drawLine 及无用 imports，statusHint 去 world 分支；`EditorDragHandler` 左栏点击/rowY/clear 去 map；`EditorMiscActions` 删 toggleWorldAutoPlay/syncWorldDisplays/pickWorldDisplay；`RmcChartClient` 删 launcher 字段/getter。world/ 包其余（Camera/Gizmo/Placement/WorldTransform）未动。
+- 协议镜像（Preview 侧见同日条目）：`rhythmc:chart_preview` 无 opcode 变更；manifest JSON `editor` 块 + `EDITOR_SELECT` 的 `shell:track` 命名空间为新增约定；track JSON 现携带 `beatDivision`（Preview 缺省 16）。
+- 编译：Preview `mvn -o compile` 通过；ChartMaker 侧本机 gradle daemon 固定 Java 17 跑不动 fabric-loom（需 21+，`-Dorg.gradle.java.home` 覆盖无效），未编译验证，需在配好 JDK 21+/25 的环境补跑 `compileClientJava`。
+
+## 2026-09-04 : MOD : runClient 自动拉起 ProdTestServer
+
+- `build.gradle` 新增 `rhythmc` 任务组：`startProdTestServer`（后台启动，端口被占用则跳过）、`runProdTestServer`（前台阻塞运行，方便调试）、`stopProdTestServer`（按 pid 文件停服）。
+- `runClient` 新增 `dependsOn("startProdTestServer")`：`./gradlew runClient` 会先在后台拉起 `ProdTestServer/`（自动选 purpur 优先的 server jar，缺失时生成 `eula.txt` 与最小 `server.properties`，已有配置绝不覆盖），最多等待 90s 至 25565 端口就绪。
+- 缺失时的默认配置为本地联调取值：`online-mode=false`（Loom 离线客户端 PlayerXXX 可进服）、`server-port=25565`；可用 `-PprodServerPort` / `-PprodServerXmx` 覆盖。
+- 实测验证：后台启动约 15s 后端口就绪，RhythMC-Preview 正常启用（`rhythmc:chart_preview`），二次执行正确跳过，停服后端口关闭；`compileClientJava` 通过。
+
+## 2026-08-20 : MOD : 世界放置、相机模式与变换 Gizmo（Phase A）
+
+- A1 全局同步：隐藏编辑外壳时 `RmcChartClient.tickGlobalChartSync()` 以 LOAD_ONLY 语义自动上传脏谱面；新增 `globalSyncInFlight` 闸，避免 `markDirty()` 重置 `previewUploading` 造成拖拽期间的重叠上传（ACK/ERROR/断线时清除）。
+- A2 世界放置：新增 `editor/world/EditorWorldPlacement`——`PREVIEW_READY` 时以玩家脚下 + (0, 0.5, -1.5) 捕获锚点，断线失效；准星射线与选中轨道平面求交（`crosshairToNotePos`），逆旋转回轨道空间并 0.25 网格吸附，最大距离 64；无命中回退默认位置，无锚点提示先运行一次 Test。
+- A3 相机模式：新增 `editor/world/EditorCameraController`——`B` 键循环 Player→Free→Top→Front；通过 dummy ArmorStand + `setCameraEntity` 分离视角；Free 模式仅在壳打开且文本框未聚焦时用 WASD/Space/Shift 飞行；Top 俯视锚点（pitch +90），Front 位于平面前方 8 格回看；HUD 左上角显示相机标签；断线或 Player 模式自动恢复。
+- A4 变换 Gizmo：新增 `EditorWorldGizmoRenderer`（Fabric `WorldRenderEvents.END_MAIN`，顶点按相机相对坐标发射，`RenderLayers.lines()` 绘制选中音符的 RGB 三轴十字）与 `EditorWorldTransform`（Transform 工具 + 选中音符时在世界区域左键拖拽，像素增量按音符深度换算世界位移，逆旋转除轨道缩放后 0.25 吸附；HOLD 保持 Z=-1）。
+- 修复 Top 相机俯角符号（MC pitch +90 朝下）；`EditorWorldPlacement.rotateInverse` 改为 public 供拖拽复用；`ChartEditorScreen` 新增 public `state()` 访问器。
+- 1.21.11 yarn 适配：`RenderLayer.getLines()` 已迁移为 `RenderLayers.lines()`；Fabric 世界渲染 API 顶点须相机相对。
+- 编译验证通过：`compileClientJava`（JDK 25 override）。相机/拖拽/Gizmo 的实际手感尚未进游戏验证。
+
+## 2026-08-17 : MOD : 恢复工具驱动的音符创建闭环
+
+- 快捷栏 2–5 选择 Tap/Look/Hold/Dodge 放置模式后，左键点击时间轴 Notes lane 即可在该 beat 创建对应类型的音符。
+- 隐藏编辑外壳（按 F）时，再次按下当前放置工具的数字键会在当前播放头和选中轨道上创建音符。
+- 右键 Notes lane 仍可创建默认 TAP 音符。
+- `EditorTool` 现在携带 `NoteType` 映射；`ChartEditorState` 新增 `addNoteOfType()` 作为跨上下文的统一创建方法。
+
+## 2026-08-17 : MOD : 世界优先编辑外壳与原版快捷栏工具
+
+- 编辑器改为非暂停的透明边缘外壳：Minecraft 世界直接作为中央预览画布，保留半透明顶栏、侧栏、紧凑传输条和底部 Track bar。
+- 原版九格快捷栏成为主工具选择器：1 Select、2 Tap、3 Look、4 Hold、5 Dodge、6 Event、7 Transform、8 Test、9 Timeline；数字键不再直接创建 Note。
+- 时间轴支持折叠与聚焦布局，折叠时保留 Track bar 和世界视野；响应式布局统一时间轴绘制、拖拽、框选和缩放命中坐标。
+- Test/自动 LOAD 改为内联上传，不再在 `PREVIEW_READY` 后关闭编辑外壳；预览序列化不再隐式 Apply Inspector，避免未确认输入改写谱面。
+- Test/Stop 使用全局请求所有权与停止屏障：本地音频等待 `PREVIEW_READY`，`PREVIEW_STOPPED` 隔离旧 generation 后才允许下一次 Start/Restart。
+- Stop 屏障只在插件通道确认消息已发送后建立；本地通道/握手不可用不会再把编辑器永久锁在等待状态。
+- 修复编辑器打开时状态重复 tick、重复处理 `F`、保存后会话失活、服务端选择重复聚焦以及 Inspector Transform 控件越界问题。
+- 明确 `rhythmc:chart_preview` 编辑消息方向：C→S 使用 12/13，S→C 使用 107/108；服务端世界选择由全局处理器应用，不产生回声循环。
+- 编译验证通过：`compileClientJava` 使用 JDK 25 daemon override 完成；Preview 插件 `mvn compile` 同步通过。
+
+## 2026-08-14 : MOD : 完全重写编辑器顶栏
+
+- 删除占整行的可编辑项目路径输入框：路径改为第一行只读暗色文本（自动截断），保存直接使用 `state.project().projectPath()`。
+- 删除 File/Edit/Options/Preview 伪菜单 Tab（后三个 Tab 从来没有任何功能）及 `ToolbarMenu` / 两份重复的 `ToolbarActionButton` 死代码。
+- 顶栏压缩为两行（86px → 52px）：
+  - 第一行：标题 + 项目名 + 截断路径（左），Server / Save / Chart / Srv / Assets 状态 pill（右对齐）。
+  - 第二行：New / Open / Save / Audio 动作按钮 + 难度分段选择器（左），当前 Beat / 轨道过滤 pill（右）。
+- New 改走 NewSongWizard 向导，Open 走项目浏览器，不再从路径框解析裸路径。
+- 难度按钮不再撑满整行，宽度自适应（46–72px），当前难度以青色高亮。
+- 删除重复的 In/Out/Playing pill（信息已在预览面板与 Play/Stop 按钮中显示）。
+- `./gradlew compileClientJava` 通过。
+
+
+## 2026-08-01 : MOD : 插件瘦身 Preview-only MVP + PREVIEW_START 新增 mode 字节
+
+- 插件（RhythMC-Preview）瘦身为 Preview-only MVP：删除 Economy、`Game/Scoreboard/`、`Game/Guidance/BossBar/`、ActionbarGuidance、SbCustomizedType/BossbarType/CiCustomizedType、GameData、统计上传与玩法配置项，仅保留谱面渲染、效果、Arena 粘贴与预览生命周期。
+- 预览新增双模式，由 MOD 在 `PREVIEW_START` 尾部追加 `byte mode`（0=Auto，1=判定）发送，`PREVIEW_RESTART` 不重发 mode，实例保持原模式：
+  - AUTO：Note 沿轨道飞行到轨尾自动消失，无玩家输入、无判定、无反馈，为默认模式。
+  - 判定（JUDGE）：保留经典判定行为（JudgeManager、FeedbackManager 粒子/全息/音效反馈）。
+- MOD 编辑器预览控制区新增 Auto/判定 切换按钮，状态存于 `ChartEditorState.previewMode()`。
+- 插件 `GameOptions` 收敛为固定预览参数；`NoteObject.judge()` 移除 AUTOPLAY 跳过释放逻辑；`JudgementListeners` 在 AUTO 模式下忽略点击。
+- 编译验证：插件 `mvn compile` 通过；MOD `./gradlew compileClientJava` 通过。
+
+
 ## 2026-06-30 : MOD : 音频波形、事件 Clip 缩放、Scene Map 网格与缩放
 
 - 提高音频波形解析度：`AudioAnalysisService.WAVEFORM_BINS` 从 512 提升到 2048，时间轴音频条显示更细腻。

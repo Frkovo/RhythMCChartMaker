@@ -23,6 +23,7 @@ public class SongManifestData {
     private final List<Map<String, Object>> unlockWorld = new ArrayList<>();
     private final List<Map<String, Object>> unlockNether = new ArrayList<>();
     private final List<Map<String, Object>> unlockVoid = new ArrayList<>();
+    private int beatsPerBar = 4;
 
     public static SongManifestData createDefault() {
         return new SongManifestData();
@@ -136,6 +137,22 @@ public class SongManifestData {
         return unlockVoid;
     }
 
+    /**
+     * Editor-only beats per bar for the Preview tunnel shell (bar rings + labels).
+     * Gameplay ignores it. Persisted under the {@code editor:} block.
+     */
+    public int beatsPerBar() {
+        return beatsPerBar;
+    }
+
+    public void setBeatsPerBar(int beatsPerBar) {
+        if (beatsPerBar <= 0) {
+            this.beatsPerBar = 4;
+            return;
+        }
+        this.beatsPerBar = Math.max(1, Math.min(32, beatsPerBar));
+    }
+
     public Map<String, Object> toOrderedMap() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("name", name);
@@ -157,6 +174,9 @@ public class SongManifestData {
         map.put("unlockWorld", unlockWorld);
         map.put("unlockNether", unlockNether);
         map.put("unlockVoid", unlockVoid);
+        Map<String, Object> editor = new LinkedHashMap<>();
+        editor.put("beatsPerBar", beatsPerBar);
+        map.put("editor", editor);
         return map;
     }
 }

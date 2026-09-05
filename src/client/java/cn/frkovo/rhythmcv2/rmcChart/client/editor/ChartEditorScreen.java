@@ -8,6 +8,8 @@ import cn.frkovo.rhythmcv2.rmcChart.chart.model.NumEventData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.TrackData;
 import cn.frkovo.rhythmcv2.rmcChart.client.RmcChartClient;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.model.*;
+import cn.frkovo.rhythmcv2.rmcChart.client.editor.world.EditorCameraController;
+import cn.frkovo.rhythmcv2.rmcChart.client.editor.world.EditorWorldTransform;
 import com.google.gson.JsonObject;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.Click;
@@ -35,14 +37,19 @@ import java.util.Set;
 public class ChartEditorScreen extends Screen {
     static final int OUTER_PADDING = 10;
     static final int PANEL_GAP = 8;
-    static final int TOP_BAR_HEIGHT = 86;
+    static final int TOP_BAR_HEIGHT = 52;
+    static final int TOP_BAR_ROW1_Y = 6;
+    static final int TOP_BAR_ROW2_Y = 30;
+    static final int TOP_BAR_STATUS_PILLS_WIDTH = 416;
+    static final int TOP_BAR_PLAYBACK_PILLS_WIDTH = 156;
     static final int STATUS_BAR_HEIGHT = 20;
-    static final int MIN_LEFT_PANEL_WIDTH = 220;
-    static final int MAX_LEFT_PANEL_WIDTH = 280;
-    static final int MIN_RIGHT_PANEL_WIDTH = 300;
-    static final int MAX_RIGHT_PANEL_WIDTH = 380;
-    static final int MIN_PREVIEW_HEIGHT = 72;
-    static final int MAX_PREVIEW_HEIGHT = 110;
+    static final int MIN_LEFT_PANEL_WIDTH = 190;
+    static final int MAX_LEFT_PANEL_WIDTH = 260;
+    static final int MIN_RIGHT_PANEL_WIDTH = 220;
+    static final int MAX_RIGHT_PANEL_WIDTH = 360;
+    static final int TRANSPORT_HEIGHT = 30;
+    static final int MIN_WORLD_HEIGHT = 64;
+    static final int MIN_TIMELINE_HEIGHT = 112;
     static final int TIMELINE_SCROLLBAR_HEIGHT = 10;
     static final int BASE_ROW_HEIGHT = 24;
     static final int TRACK_HEADER_HEIGHT = 24;
@@ -56,14 +63,11 @@ public class ChartEditorScreen extends Screen {
     static final int TRACK_BAR_HEIGHT = 26;
     static final int FX_TRACK_HEADER_HEIGHT = 24;
     static final int FX_EFFECT_CLIP_HEIGHT = 30;
-    static final int MENU_TAB_WIDTH = 70;
     static final int EVENT_DRAG_WIDTH = 14;
     static final int EVENT_CELL_WIDTH = 30;
     static final int EVENT_EASE_WIDTH = 72;
     static final int EVENT_COPY_WIDTH = 22;
     static final int EVENT_REMOVE_WIDTH = 18;
-    static final int MAP_OVERLAY_HEIGHT = 42;
-    static final int MAP_OVERLAY_BUTTON_WIDTH = 44;
     static final int SMOOTHING_POPUP_WIDTH = 360;
     static final int SMOOTHING_POPUP_HEIGHT = 210;
     static final double NOTE_LANE_DEFAULT_RANGE = 2.0;
@@ -95,29 +99,20 @@ public class ChartEditorScreen extends Screen {
     final EditorHistory history;
     final EditorSelectionManager selectionManager;
     final EditorSmoothingEngine smoothing;
-    final EditorSceneMap sceneMap;
-
-    TextFieldWidget pathField;
 
     EditorSelection lastSelection = null;
     DragMode dragMode = DragMode.NONE;
     int trackScrollY = 0;
-    double sceneMapZoom = 1.0;
     SelectedEventHandle selectedEventHandle;
     SelectedEventClip selectedEventClip;
     SelectionBox selectionBox;
     boolean selectionBoxAdditive;
-    ToolbarMenu activeToolbarMenu = ToolbarMenu.FILE;
     double snapGuideBeat = Double.NaN;
     final Map<SelectedNote, NoteDragSnapshot> noteDragSnapshots = new java.util.HashMap<>();
     final Map<SelectedEffect, EffectDragSnapshot> effectDragSnapshots = new java.util.HashMap<>();
     final Map<SelectedEventClip, EventClipDragSnapshot> eventClipDragSnapshots = new java.util.HashMap<>();
-    final Map<SelectedNote, cn.frkovo.rhythmcv2.rmcChart.chart.model.Vec3Data> mapNoteDragOrigins = new java.util.HashMap<>();
-    final Map<EffectData, cn.frkovo.rhythmcv2.rmcChart.chart.model.Vec3Data> mapEffectDragOrigins = new java.util.HashMap<>();
     double dragAnchorBeat;
     double dragAnchorNoteProjectionY;
-    double mapDragAnchorMouseX;
-    double mapDragAnchorMouseY;
     SelectedNote draggingHoldLengthNote;
     double dragAnchorHoldLength;
     TrackEventEditor draggingTrackEventEditor;
@@ -137,6 +132,7 @@ public class ChartEditorScreen extends Screen {
     double pendingServerPreviewBeat = Double.NaN;
     boolean openWorldPreviewOnReady;
     boolean autoPreviewStarted;
+    boolean timelineFocused;
 
     public ChartEditorScreen(ChartEditorState state) {
         super(Text.literal("RhythMC Chart Maker"));
@@ -151,7 +147,7 @@ public class ChartEditorScreen extends Screen {
         this.history = new EditorHistory(this);
         this.selectionManager = new EditorSelectionManager(this);
         this.smoothing = new EditorSmoothingEngine(this);
-        this.sceneMap = new EditorSceneMap(this);
+        this.timelineFocused = state.activeTool() == EditorTool.TIMELINE;
     }
 
     int publicWidth() { return width; }
@@ -162,15 +158,15 @@ public class ChartEditorScreen extends Screen {
     MinecraftClient getClient() { return client; }
 
     int leftPanelWidth() {
-        return EditorUtils.clamp((int) Math.round(width * 0.19), MIN_LEFT_PANEL_WIDTH, MAX_LEFT_PANEL_WIDTH);
+        return dockWidths()[0];
     }
 
     int rightPanelWidth() {
-        return EditorUtils.clamp((int) Math.round(width * 0.27), MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
+        return dockWidths()[1];
     }
 
     int rightPanelInnerWidth() {
-        return rightPanelWidth() - 16;
+        return Math.max(1, rightPanelWidth() - 20);
     }
 
     int rightPanelX() {
@@ -181,8 +177,22 @@ public class ChartEditorScreen extends Screen {
         return TOP_BAR_HEIGHT;
     }
 
-    private int previewHeight() {
-        return EditorUtils.clamp((int) Math.round(height * 0.16), MIN_PREVIEW_HEIGHT, MAX_PREVIEW_HEIGHT);
+    private int[] dockWidths() {
+        int usable = Math.max(0, width - OUTER_PADDING * 2 - PANEL_GAP * 2);
+        int targetLeft = EditorUtils.clamp((int) Math.round(usable * 0.20), MIN_LEFT_PANEL_WIDTH, MAX_LEFT_PANEL_WIDTH);
+        int targetRight = EditorUtils.clamp((int) Math.round(usable * 0.30), MIN_RIGHT_PANEL_WIDTH, MAX_RIGHT_PANEL_WIDTH);
+        int dockBudget = Math.max(0, usable - Math.min(180, usable));
+        int targetTotal = targetLeft + targetRight;
+        if (targetTotal <= dockBudget) {
+            return new int[]{targetLeft, targetRight};
+        }
+        double scale = targetTotal == 0 ? 0.0 : dockBudget / (double) targetTotal;
+        int left = (int) Math.floor(targetLeft * scale);
+        return new int[]{left, Math.max(0, dockBudget - left)};
+    }
+
+    public ChartEditorState state() {
+        return state;
     }
 
     EditorLayout editorLayout() {
@@ -192,14 +202,27 @@ public class ChartEditorScreen extends Screen {
         int rightWidth = rightPanelWidth();
         int rightX = width - rightWidth - OUTER_PADDING;
         int centerX = leftX + leftWidth + PANEL_GAP;
-        int centerWidth = Math.max(96, rightX - centerX - PANEL_GAP);
-        int panelHeight = Math.max(96, height - topY - STATUS_BAR_HEIGHT - OUTER_PADDING);
-        int previewHeight = Math.min(previewHeight(), Math.max(72, panelHeight / 2));
-        int timelineY = topY + previewHeight + PANEL_GAP;
-        int timelineHeight = Math.max(TIMELINE_RULER_HEIGHT + TIMELINE_AUDIO_STRIP_HEIGHT + 48, height - timelineY - TRACK_BAR_HEIGHT - TIMELINE_SCROLLBAR_HEIGHT - STATUS_BAR_HEIGHT - OUTER_PADDING - 4);
-        int trackBarY = timelineY + timelineHeight + 4;
-        int scrollbarY = trackBarY + TRACK_BAR_HEIGHT;
-        return new EditorLayout(leftX, topY, leftWidth, rightX, rightWidth, centerX, centerWidth, panelHeight, previewHeight, timelineY, timelineHeight, trackBarY, scrollbarY);
+        int centerWidth = Math.max(1, rightX - centerX - PANEL_GAP);
+        int panelHeight = Math.max(0, height - topY - STATUS_BAR_HEIGHT - OUTER_PADDING);
+        int contentBottom = topY + panelHeight;
+        int previewHeight = Math.min(TRANSPORT_HEIGHT, panelHeight);
+        int focusCapacity = panelHeight - previewHeight - PANEL_GAP * 2 - TRACK_BAR_HEIGHT
+                - TIMELINE_SCROLLBAR_HEIGHT - 4 - MIN_WORLD_HEIGHT;
+        boolean timelineVisible = timelineFocused && focusCapacity >= MIN_TIMELINE_HEIGHT;
+        int timelineHeight = timelineVisible
+                ? Math.min(EditorUtils.clamp((int) Math.round(panelHeight * 0.55), MIN_TIMELINE_HEIGHT, 560), focusCapacity)
+                : 0;
+        int scrollbarY = timelineVisible ? contentBottom - TIMELINE_SCROLLBAR_HEIGHT : -1;
+        int trackBarY = timelineVisible ? scrollbarY - TRACK_BAR_HEIGHT : contentBottom - TRACK_BAR_HEIGHT;
+        int timelineY = timelineVisible ? trackBarY - 4 - timelineHeight : trackBarY;
+        int worldY = topY + previewHeight + PANEL_GAP;
+        int worldBottom = (timelineVisible ? timelineY : trackBarY) - PANEL_GAP;
+        int worldHeight = Math.max(0, worldBottom - worldY);
+        int labelWidth = Math.min(TIMELINE_LABEL_WIDTH,
+                Math.min(Math.max(0, centerWidth - 48), Math.max(72, (int) Math.round(centerWidth * 0.28))));
+        return new EditorLayout(leftX, topY, leftWidth, rightX, rightWidth, centerX, centerWidth,
+                panelHeight, previewHeight, timelineY, timelineHeight, trackBarY, scrollbarY,
+                centerX, worldY, centerWidth, worldHeight, labelWidth, timelineVisible, timelineVisible);
     }
 
     @Override
@@ -208,20 +231,15 @@ public class ChartEditorScreen extends Screen {
         propertyPanel.clearFields();
         toolbar.clearToolbar();
         dragHandler.clearDragState();
-        selectionManager.clearTimelineSelections();
         smoothing.smoothingPopupOpen = false;
         groupNamePopupOpen = false;
 
-        int topY = 8;
-        pathField = addDrawableChild(new TextFieldWidget(textRenderer, 112, topY, Math.max(120, width - 392), 18, Text.literal("Project Path")));
-        pathField.setMaxLength(512);
-        pathField.setText(state.project().projectPath().toString());
         smoothing.createSmoothingPopupWidgets();
         RmcChartClient.getPreviewClient().setEventHandler(previewBridge::handleServerPreviewEvent);
 
-        int buttonY = 34;
-        toolbar.addTopButtons(buttonY);
-        toolbar.addDifficultyButtons(58);
+        int actionsEndX = toolbar.addTopButtons(TOP_BAR_ROW2_Y);
+        int difficultyEndX = width - OUTER_PADDING - TOP_BAR_PLAYBACK_PILLS_WIDTH - 8;
+        toolbar.addDifficultyButtons(TOP_BAR_ROW2_Y, actionsEndX, Math.max(actionsEndX + 200, difficultyEndX));
         propertyPanel.createPropertyFields();
         propertyPanel.populateFieldsFromSelection();
         propertyPanel.layoutPropertyFields();
@@ -233,13 +251,14 @@ public class ChartEditorScreen extends Screen {
         if (!autoPreviewStarted
                 && RmcChartClient.getPreviewClient().isReady()
                 && !state.serverPreviewRunning()
-                && !state.previewUploading()
+                && !previewBridge.previewRequestPending()
                 && !state.previewChartUploaded()
                 && !state.previewAutoStarted()) {
             autoPreviewStarted = true;
             state.markPreviewAutoStarted();
-            previewBridge.startWorldPreviewFromEditor(PendingPreviewAction.START);
+            previewBridge.startInlinePreview(PendingPreviewAction.START);
         }
+        timeline.clampTimelineLaneScroll();
     }
 
     @Override
@@ -255,9 +274,9 @@ public class ChartEditorScreen extends Screen {
         }
         state.tick();
         if (state.previewChartDirty()
-                && !state.previewUploading()
+                && !previewBridge.previewRequestPending()
                 && RmcChartClient.getPreviewClient().isReady()) {
-            previewBridge.startWorldPreviewFromEditor(PendingPreviewAction.LOAD_ONLY);
+            previewBridge.startInlinePreview(PendingPreviewAction.LOAD_ONLY);
         }
         history.captureHistorySnapshotIfNeeded();
         if (!state.selection().equals(lastSelection)) {
@@ -273,9 +292,13 @@ public class ChartEditorScreen extends Screen {
         chrome.drawEditorChrome(context);
         chrome.drawLeftPanel(context, layout.leftX(), layout.topY(), layout.leftWidth(), layout.panelHeight(), mouseX, mouseY);
         chrome.drawPreviewPanel(context, layout.centerX(), layout.topY(), layout.centerWidth(), layout.previewHeight());
-        timeline.drawTimeline(context, layout.centerX(), layout.timelineY(), layout.centerWidth(), layout.timelineHeight(), mouseX, mouseY);
+        if (layout.timelineVisible()) {
+            timeline.drawTimeline(context, layout.centerX(), layout.timelineY(), layout.centerWidth(), layout.timelineHeight(), mouseX, mouseY);
+        }
         timeline.drawTrackBar(context, layout.centerX(), layout.trackBarY(), layout.centerWidth(), TRACK_BAR_HEIGHT, mouseX, mouseY);
-        timeline.drawTimelineScrollbar(context, layout.centerX(), layout.scrollbarY(), layout.centerWidth(), TIMELINE_SCROLLBAR_HEIGHT);
+        if (layout.scrollbarVisible()) {
+            timeline.drawTimelineScrollbar(context, layout.centerX(), layout.scrollbarY(), layout.centerWidth(), TIMELINE_SCROLLBAR_HEIGHT);
+        }
         propertyPanel.drawPropertyPanel(context, layout.rightX(), layout.topY(), layout.rightWidth(), layout.panelHeight());
         chrome.drawStatusBar(context);
         chrome.drawSmoothingPopupBackground(context);
@@ -285,6 +308,10 @@ public class ChartEditorScreen extends Screen {
         chrome.drawTrackEventEasingPopup(context, mouseX, mouseY);
         chrome.drawSmoothingPopupText(context);
         chrome.drawGroupNamePopupText(context);
+    }
+
+    @Override
+    public void renderBackground(DrawContext context, int mouseX, int mouseY, float delta) {
     }
 
     @Override
@@ -313,7 +340,7 @@ public class ChartEditorScreen extends Screen {
         EditorLayout layout = editorLayout();
 
         if (EditorUtils.isInside(mouseX, mouseY, layout.leftX(), layout.topY(), layout.leftWidth(), layout.panelHeight())) {
-            if (dragHandler.handleLeftPanelClick(mouseX, mouseY, layout.leftX(), layout.topY())) {
+            if (dragHandler.handleLeftPanelClick(mouseX, mouseY, layout.leftX(), layout.topY(), layout.leftWidth())) {
                 return true;
             }
         }
@@ -322,7 +349,7 @@ public class ChartEditorScreen extends Screen {
                 return true;
             }
         }
-        if (EditorUtils.isInside(mouseX, mouseY, layout.centerX(), layout.timelineY(), layout.centerWidth(), layout.timelineHeight())) {
+        if (layout.timelineVisible() && EditorUtils.isInside(mouseX, mouseY, layout.centerX(), layout.timelineY(), layout.centerWidth(), layout.timelineHeight())) {
             if (dragHandler.handleTimelineClick(click, layout.centerX(), layout.timelineY(), layout.centerWidth(), layout.timelineHeight())) {
                 return true;
             }
@@ -332,7 +359,7 @@ public class ChartEditorScreen extends Screen {
                 return true;
             }
         }
-        if (EditorUtils.isInside(mouseX, mouseY, layout.centerX(), layout.scrollbarY(), layout.centerWidth(), TIMELINE_SCROLLBAR_HEIGHT)) {
+        if (layout.scrollbarVisible() && EditorUtils.isInside(mouseX, mouseY, layout.centerX(), layout.scrollbarY(), layout.centerWidth(), TIMELINE_SCROLLBAR_HEIGHT)) {
             dragHandler.startTimelineScrollbarDrag(mouseX);
             return true;
         }
@@ -341,37 +368,34 @@ public class ChartEditorScreen extends Screen {
                 return true;
             }
         }
+        if (click.button() == 0 && state.activeTool() == EditorTool.TRANSFORM
+                && state.selection().kind() == EditorSelection.Kind.NOTE && state.selection().note() != null
+                && EditorUtils.isInside(mouseX, mouseY, layout.worldX(), layout.worldY(), layout.worldWidth(), layout.worldHeight())) {
+            dragMode = DragMode.WORLD_NOTE_DRAG;
+            return true;
+        }
         return false;
     }
 
     @Override
     public boolean mouseDragged(Click click, double deltaX, double deltaY) {
         if (dragMode != DragMode.NONE) {
-            if (dragMode == DragMode.WORLD_SELECTION) {
-                if (client != null && client.world != null) {
-                    RmcChartClient.getWorldLauncher().dragSelection(deltaX, deltaY, click.button(), isShiftDown());
-                    propertyPanel.populateFieldsFromSelection();
-                }
-            } else if (dragMode == DragMode.TRACK_EVENT_BOX_SELECT) {
+            if (dragMode == DragMode.TRACK_EVENT_BOX_SELECT) {
                 propertyPanel.trackEvents.trackEventSelectionBox = propertyPanel.trackEvents.trackEventSelectionBox == null
                         ? new SelectionBox((int) click.x(), (int) click.y(), (int) click.x(), (int) click.y())
                         : new SelectionBox(propertyPanel.trackEvents.trackEventSelectionBox.startX(), propertyPanel.trackEvents.trackEventSelectionBox.startY(), (int) click.x(), (int) click.y());
             } else if (dragMode == DragMode.TRACK_EVENT_ROW) {
                 propertyPanel.trackEvents.draggingTrackEventMouseY = click.y();
                 propertyPanel.trackEvents.updateDraggedTrackEventTarget(click.y());
-            } else if (dragMode == DragMode.MAP_NOTE || dragMode == DragMode.MAP_EFFECT) {
-                EditorLayout layout = editorLayout();
-                int mapX = layout.leftX() + 10;
-                int mapY = layout.topY() + 28;
-                int mapSize = layout.leftWidth() - 20;
-                sceneMap.handleCurrentFrameMapDrag(click.x(), click.y(), mapX, mapY, mapSize, mapSize);
             } else if (dragMode == DragMode.TIMELINE_ZOOM) {
                 EditorLayout layout = editorLayout();
-                int contentX = layout.centerX() + TIMELINE_LABEL_WIDTH;
-                int contentWidth = Math.max(48, layout.centerWidth() - TIMELINE_LABEL_WIDTH);
+                int contentX = layout.timelineContentX();
+                int contentWidth = layout.timelineContentWidth();
                 dragHandler.setTimelineZoomFromMouseX(click.x(), contentX, contentWidth);
             } else if (dragMode == DragMode.TIMELINE_SCROLL) {
                 dragHandler.handleTimelineScrollbarDrag(click.x());
+            } else if (dragMode == DragMode.WORLD_NOTE_DRAG) {
+                EditorWorldTransform.dragSelectedNote(state, client, deltaX, deltaY);
             } else {
                 dragHandler.handleTimelineDrag(click.x(), click.y());
             }
@@ -398,22 +422,13 @@ public class ChartEditorScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         EditorLayout layout = editorLayout();
-        int mapSize = layout.leftWidth() - 20;
-        int mapX = layout.leftX() + 10;
-        int mapY = layout.topY() + 28;
-        if (EditorUtils.isInside(mouseX, mouseY, mapX, mapY, mapSize, mapSize)) {
-            double factor = verticalAmount > 0 ? 1.15 : 0.87;
-            sceneMapZoom = EditorUtils.clamp(sceneMapZoom * factor, 0.25, 8.0);
-            state.setStatus("Scene Map zoom " + EditorUtils.format(sceneMapZoom) + "x");
-            return true;
-        }
         if (EditorUtils.isInside(mouseX, mouseY, layout.rightX(), layout.topY(), layout.rightWidth(), layout.panelHeight())) {
             propertyPanel.propertyScroll += (int) Math.round(verticalAmount * 16.0);
             propertyPanel.propertyScroll = EditorUtils.clamp(propertyPanel.propertyScroll, -1600, 0);
             propertyPanel.layoutPropertyFields();
             return true;
         }
-        if (EditorUtils.isInside(mouseX, mouseY, layout.centerX(), layout.timelineY(), layout.centerWidth(), layout.timelineHeight())) {
+        if (layout.timelineVisible() && EditorUtils.isInside(mouseX, mouseY, layout.centerX(), layout.timelineY(), layout.centerWidth(), layout.timelineHeight())) {
             if (isControlDown()) {
                 state.zoom(verticalAmount > 0 ? 0.9 : 1.1);
                 state.setStatus("Timeline zoom: " + EditorUtils.format(state.beatsPerScreen()) + " beats");
@@ -463,6 +478,13 @@ public class ChartEditorScreen extends Screen {
         }
         if (isKeyPressedThisFrame(keyInput, RmcChartClient.smoothingPopupKeyBinding()) && isControlDown()) {
             smoothing.openSmoothingPopup();
+            return true;
+        }
+        if (!isControlDown() && !isAltDown() && !(getFocused() instanceof TextFieldWidget)
+                && keyCode >= InputUtil.GLFW_KEY_1 && keyCode <= InputUtil.GLFW_KEY_9) {
+            if (consumedKeyCodes.add(keyCode)) {
+                activateHotbarTool(keyCode - InputUtil.GLFW_KEY_1);
+            }
             return true;
         }
         if (super.keyPressed(keyInput)) {
@@ -546,27 +568,6 @@ public class ChartEditorScreen extends Screen {
                 return true;
             }
         }
-        if (!isControlDown() && !isAltDown()) {
-            if (getFocused() instanceof TextFieldWidget) {
-                return false;
-            }
-            if (isKeyPressedThisFrame(keyInput, RmcChartClient.noteTapKeyBinding())) {
-                actions.createNoteFromShortcut(NoteType.TAP);
-                return true;
-            }
-            if (isKeyPressedThisFrame(keyInput, RmcChartClient.noteLookKeyBinding())) {
-                actions.createNoteFromShortcut(NoteType.LOOK);
-                return true;
-            }
-            if (isKeyPressedThisFrame(keyInput, RmcChartClient.noteHoldKeyBinding())) {
-                actions.createNoteFromShortcut(NoteType.HOLD);
-                return true;
-            }
-            if (isKeyPressedThisFrame(keyInput, RmcChartClient.noteDodgeKeyBinding())) {
-                actions.createNoteFromShortcut(NoteType.DODGE);
-                return true;
-            }
-        }
         if (isKeyPressedThisFrame(keyInput, RmcChartClient.cancelKeyBinding())) {
             selectionManager.clearTimelineSelections();
             if (state.selection().kind() == EditorSelection.Kind.NOTE) {
@@ -578,12 +579,10 @@ public class ChartEditorScreen extends Screen {
             if (getFocused() instanceof TextFieldWidget) {
                 return false;
             }
-            if (state.playing()) {
-                state.stopPlayback();
-                RmcChartClient.getPreviewClient().sendPreviewStop();
+            if (previewBridge.testRunningOrPending()) {
+                previewBridge.stopServerPreview();
             } else {
-                state.startPlaybackAt(state.playheadBeat(), "Playback started");
-                RmcChartClient.getPreviewClient().sendPreviewStart(state.playheadBeat());
+                previewBridge.startInlinePreview(PendingPreviewAction.START);
             }
             return true;
         }
@@ -592,10 +591,6 @@ public class ChartEditorScreen extends Screen {
                 state.togglePlayback();
                 return true;
             }
-        }
-        if (isKeyPressedThisFrame(keyInput, RmcChartClient.openEditorKeyBinding()) && !isControlDown() && !isAltDown()) {
-            close();
-            return true;
         }
         if (isKeyPressedThisFrame(keyInput, RmcChartClient.deleteKeyBinding())) {
             actions.deleteCurrentSelection();
@@ -618,6 +613,11 @@ public class ChartEditorScreen extends Screen {
             return true;
         }
         if (!(getFocused() instanceof TextFieldWidget)) {
+            if (keyCode == InputUtil.GLFW_KEY_B) {
+                EditorCameraController.cycleMode(client);
+                state.setStatus("Camera: " + EditorCameraController.mode().label());
+                return true;
+            }
             if (keyCode == InputUtil.GLFW_KEY_HOME) {
                 state.seekToBeat(0.0);
                 state.setStatus("Jumped to start");
@@ -648,6 +648,46 @@ public class ChartEditorScreen extends Screen {
             }
         }
         return false;
+    }
+
+    void activateHotbarTool(int slot) {
+        EditorTool tool = EditorTool.fromHotbarSlot(slot);
+        RmcChartClient.selectEditorTool(slot, true);
+        if (tool == EditorTool.TEST) {
+            if (previewBridge.testRunningOrPending()) {
+                previewBridge.stopServerPreview();
+            } else {
+                previewBridge.startInlinePreview(PendingPreviewAction.START);
+            }
+        } else if (tool == EditorTool.TIMELINE) {
+            toggleTimelineFocus();
+        }
+    }
+
+    void toggleTimelineFocus() {
+        setTimelineFocused(!timelineFocused);
+    }
+
+    boolean timelineFocused() {
+        return timelineFocused;
+    }
+
+    void setTimelineFocused(boolean focused) {
+        if (timelineFocused == focused) {
+            return;
+        }
+        dragHandler.endDrag();
+        timelineFocused = focused;
+        timeline.clampTimelineLaneScroll();
+        state.setStatus(timelineFocused ? "Timeline focused" : "Timeline collapsed; Minecraft world is the canvas");
+    }
+
+    public void hideShellForWorldView() {
+        if (previewBridge.previewRequestPending()) {
+            state.setStatus("Wait for preview sync to finish before hiding the editor");
+            return;
+        }
+        close();
     }
 
     int groupNamePopupX() {
@@ -803,7 +843,6 @@ public class ChartEditorScreen extends Screen {
     public void close() {
         RmcChartClient.getPreviewClient().setEventHandler(null);
         if (client != null && client.world != null) {
-            RmcChartClient.getWorldLauncher().onEditorClosed();
             client.setScreen(null);
             return;
         }
@@ -824,6 +863,11 @@ public class ChartEditorScreen extends Screen {
 
     @Override
     public boolean shouldPause() {
+        return false;
+    }
+
+    @Override
+    public boolean shouldCloseOnEsc() {
         return false;
     }
 }

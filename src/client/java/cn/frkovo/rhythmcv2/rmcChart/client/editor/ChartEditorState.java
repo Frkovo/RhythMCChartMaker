@@ -9,6 +9,7 @@ import cn.frkovo.rhythmcv2.rmcChart.chart.model.ChartProject;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.EffectData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.LevelData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.NoteData;
+import cn.frkovo.rhythmcv2.rmcChart.chart.model.NoteType;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.NumEventData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.MetaData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.SongManifestData;
@@ -20,6 +21,7 @@ import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.PreviewAutoSoundSchedule
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.SongAudioPlayer;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.audio.SongAudioResolver;
 import cn.frkovo.rhythmcv2.rmcChart.client.editor.model.ChartProjectCopier;
+import cn.frkovo.rhythmcv2.rmcChart.client.editor.model.EditorTool;
 import cn.frkovo.rhythmcv2.rmcChart.client.project.ProjectStorage;
 
 import java.io.IOException;
@@ -66,6 +68,8 @@ public class ChartEditorState {
     private boolean previewAudioUploaded;
     private boolean previewSchematicUploaded;
     private boolean previewAutoStarted;
+    private byte previewMode = cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.PREVIEW_MODE_AUTO;
+    private EditorTool activeTool = EditorTool.SELECT;
     private final PreviewAutoSoundScheduler autoSoundScheduler = new PreviewAutoSoundScheduler();
     private final EditorDraft editorDraft = new EditorDraft();
 
@@ -96,7 +100,28 @@ public class ChartEditorState {
     }
 
     public void setSelection(EditorSelection selection) {
+        TrackData before = selectedTrack();
         this.selection = selection;
+        notifyShellActiveTrack(before);
+    }
+
+    /**
+     * Tells the Preview tunnel shell to re-tint for the newly selected track without
+     * a full chart re-upload. Only fires when the new selection actually points at a
+     * different track; the {@code shell:} namespace keeps it separate from
+     * click-selection state on the server.
+     */
+    private void notifyShellActiveTrack(TrackData before) {
+        if (selection == null) return;
+        EditorSelection.Kind kind = selection.kind();
+        if (kind != EditorSelection.Kind.TRACK && kind != EditorSelection.Kind.NOTE) return;
+        TrackData now = selection.track();
+        if (now == null || (before != null && now.id() == before.id())) return;
+        try {
+            cn.frkovo.rhythmcv2.rmcChart.client.RmcChartClient.getPreviewClient()
+                    .sendEditorSelect("shell:track=" + now.id());
+        } catch (RuntimeException ignored) {
+        }
     }
 
     public boolean selectTrackById(int trackId) {
@@ -175,6 +200,21 @@ public class ChartEditorState {
 
     public String statusMessage() {
         return statusMessage;
+    }
+
+    public EditorTool activeTool() {
+        return activeTool;
+    }
+
+    public void setActiveTool(EditorTool activeTool, boolean announce) {
+        EditorTool next = activeTool == null ? EditorTool.SELECT : activeTool;
+        if (this.activeTool == next) {
+            return;
+        }
+        this.activeTool = next;
+        if (announce) {
+            setStatus("Tool " + (next.hotbarSlot() + 1) + ": " + next.label());
+        }
     }
 
     public Path audioPath() {
@@ -285,6 +325,17 @@ public class ChartEditorState {
 
     public void markPreviewAutoStarted() {
         previewAutoStarted = true;
+    }
+
+    public byte previewMode() {
+        return previewMode;
+    }
+
+    public void togglePreviewMode() {
+        previewMode = previewMode == cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.PREVIEW_MODE_AUTO
+                ? cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.PREVIEW_MODE_JUDGE
+                : cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.PREVIEW_MODE_AUTO;
+        setStatus("Preview mode: " + (previewMode == cn.frkovo.rhythmcv2.rmcChart.client.net.ChartPreviewChannel.PREVIEW_MODE_AUTO ? "Auto" : "判定"));
     }
 
     public TimingTimeline timing() {
@@ -460,8 +511,9 @@ public class ChartEditorState {
 
     public SerializedPreviewChart serializeCurrentChart() {
         sortCurrentLevel();
+        TrackData active = selectedTrack();
         return new SerializedPreviewChart(
-                ChartProjectIo.toManifestJson(project.manifest()),
+                ChartProjectIo.toManifestJson(project.manifest(), active == null ? 0 : active.id()),
                 ChartProjectIo.toLevelJson(level())
         );
     }
@@ -636,6 +688,31 @@ public class ChartEditorState {
         selection = EditorSelection.note(track, note);
         markDirty();
         setStatus("Added note at beat " + EditorUtils.formatBeat(note.beat()));
+        return note;
+    }
+
+    public NoteData addNoteOfType(TrackData track, double beat, NoteType noteType) {
+        if (track == null) {
+            track = addTrack();
+        }
+        NoteData note = NoteData.createDefault(beat);
+        note.setNoteType(noteType);
+        if (noteType == NoteType.HOLD) {
+            note.pos().set(note.pos().x(), note.pos().y(), -1.0);
+            note.setHoldLengthBeats(Math.max(0.25, 4.0 / Math.max(1, track.beatDivision())));
+        }
+        track.notes().add(note);
+        sortCurrentLevel();
+        selection = EditorSelection.note(track, note);
+        markDirty();
+        setStatus("Added " + EditorUtils.shortNoteLabel(noteType) + " at beat " + EditorUtils.formatBeat(note.beat()));
+        return note;
+    }
+
+    /** Places a note of the given type at explicit chart-space x/y (e.g. world crosshair placement). */
+    public NoteData addNoteOfTypeAt(TrackData track, double beat, NoteType noteType, double posX, double posY) {
+        NoteData note = addNoteOfType(track, beat, noteType);
+        note.pos().set(posX, posY, note.pos().z());
         return note;
     }
 

@@ -91,6 +91,7 @@ public class MetaEditorScreen extends Screen {
         addField(fieldX, fieldWidth, "Description", "Song blurb");
         addField(fieldX, fieldWidth, "Song ID", "Unique song id");
         addField(fieldX, fieldWidth, "Version", "Manifest version");
+        addField(fieldX, fieldWidth, "Beats Per Bar", "Editor shell beats per bar 1-32");
         addField(fieldX, fieldWidth, "Comments(csv)", "CSV list");
         addField(fieldX, fieldWidth, "PlayerAlias(csv)", "CSV list");
         addField(fieldX, fieldWidth, "Tags(csv)", "CSV list");
@@ -167,6 +168,7 @@ public class MetaEditorScreen extends Screen {
         set("Description", manifest.description());
         set("Song ID", Integer.toString(manifest.songId()));
         set("Version", manifest.version());
+        set("Beats Per Bar", Integer.toString(manifest.beatsPerBar()));
         set("Comments(csv)", joinCsv(manifest.comments()));
         set("PlayerAlias(csv)", joinCsv(manifest.playerAlias()));
         set("Tags(csv)", joinCsv(manifest.tags()));
@@ -198,6 +200,7 @@ public class MetaEditorScreen extends Screen {
             manifest.setDescription(get("Description"));
             manifest.setSongId(parseInt(get("Song ID")));
             manifest.setVersion(get("Version"));
+            manifest.setBeatsPerBar(parseInt(get("Beats Per Bar")));
             replaceStrings(manifest.comments(), splitCsv(get("Comments(csv)")));
             replaceStrings(manifest.playerAlias(), splitCsv(get("PlayerAlias(csv)")));
             replaceStrings(manifest.tags(), splitCsv(get("Tags(csv)")));

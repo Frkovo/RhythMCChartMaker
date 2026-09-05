@@ -5,8 +5,6 @@ public enum DragMode {
     NOTE,
     EFFECT,
     BPM,
-    MAP_NOTE,
-    MAP_EFFECT,
     EVENT_HANDLE,
     EVENT_CLIP,
     HOLD_LENGTH,
@@ -15,5 +13,5 @@ public enum DragMode {
     BOX_SELECT,
     TRACK_EVENT_BOX_SELECT,
     TRACK_EVENT_ROW,
-    WORLD_SELECTION
+    WORLD_NOTE_DRAG
 }

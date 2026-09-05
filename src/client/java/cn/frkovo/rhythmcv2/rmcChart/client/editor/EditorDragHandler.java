@@ -22,8 +22,9 @@ final class EditorDragHandler {
     boolean handleTimelineClick(Click click, int x, int y, int width, int height) {
         double mouseX = click.x();
         double mouseY = click.y();
-        int contentX = x + ChartEditorScreen.TIMELINE_LABEL_WIDTH;
-        int contentWidth = Math.max(48, width - ChartEditorScreen.TIMELINE_LABEL_WIDTH);
+        EditorLayout editorLayout = screen.editorLayout();
+        int contentX = editorLayout.timelineContentX();
+        int contentWidth = editorLayout.timelineContentWidth();
         int audioY = y + height - ChartEditorScreen.TIMELINE_AUDIO_STRIP_HEIGHT;
         if (mouseY < y + ChartEditorScreen.TIMELINE_RULER_HEIGHT) {
             if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_LEFT && isInsideTimelineZoomBar(mouseX, mouseY, contentX, contentWidth, y)) {
@@ -65,6 +66,17 @@ final class EditorDragHandler {
             screen.selectionManager.replaceSelectedNotes(List.of(new SelectedNote(lane.track, note)));
             screen.propertyPanel.populateFieldsFromSelection();
             screen.state.setStatus("Added note on TrackID " + lane.track.id() + " at " + screen.propertyPanel.format(addBeat));
+            return true;
+        }
+        EditorTool activeTool = screen.state.activeTool();
+        if (click.button() == InputUtil.GLFW_MOUSE_BUTTON_LEFT && lane.track != null && lane.type == LaneType.NOTES
+                && activeTool.isNotePlacement()) {
+            double addBeat = beat >= 0.0 ? beat : screen.snapBeat(screen.state.playheadBeat(), lane.track);
+            NoteData note = screen.state.addNoteOfType(lane.track, addBeat, activeTool.noteType());
+            screen.selectionManager.replaceSelectedNotes(List.of(new SelectedNote(lane.track, note)));
+            screen.propertyPanel.populateFieldsFromSelection();
+            screen.state.setStatus("Placed " + activeTool.label() + " on Track " + lane.track.id()
+                    + " at " + screen.propertyPanel.format(addBeat));
             return true;
         }
         if (lane.type == LaneType.BPM) {
@@ -193,8 +205,8 @@ final class EditorDragHandler {
 
     void handleTimelineDrag(double mouseX, double mouseY) {
         EditorLayout layout = screen.editorLayout();
-        int contentX = layout.centerX() + ChartEditorScreen.TIMELINE_LABEL_WIDTH;
-        int contentWidth = Math.max(48, layout.centerWidth() - ChartEditorScreen.TIMELINE_LABEL_WIDTH);
+        int contentX = layout.timelineContentX();
+        int contentWidth = layout.timelineContentWidth();
         double beat = screen.snapBeat(screen.screenToBeat(contentX, contentWidth, Math.max(contentX, mouseX)));
         List<TimelineLaneLayout> layouts = screen.timeline.buildTimelineLaneLayouts(layout.timelineY() + ChartEditorScreen.TIMELINE_RULER_HEIGHT);
         int laneBottom = layout.timelineY() + layout.timelineHeight() - ChartEditorScreen.TIMELINE_AUDIO_STRIP_HEIGHT;
@@ -234,36 +246,50 @@ final class EditorDragHandler {
         if (click.button() != InputUtil.GLFW_MOUSE_BUTTON_LEFT) {
             return false;
         }
-        int transportX = x + 10;
         int transportY = y + 6;
-        if (EditorUtils.isInside(click.x(), click.y(), transportX, transportY, 52, 18)) {
+        int buttonWidth = screen.chrome.transportButtonWidth(width);
+        if (EditorUtils.isInside(click.x(), click.y(), screen.chrome.transportButtonX(x, width, 0), transportY, buttonWidth, 18)) {
             screen.actions.togglePlaybackFromToolbar();
             return true;
         }
-        if (EditorUtils.isInside(click.x(), click.y(), transportX + 58, transportY, 52, 18)) {
+        if (EditorUtils.isInside(click.x(), click.y(), screen.chrome.transportButtonX(x, width, 1), transportY, buttonWidth, 18)) {
             screen.actions.stopPlaybackFromToolbar();
             screen.state.seekToBeat(screen.state.playbackStartBeat());
             screen.state.togglePlayback();
             return true;
         }
-        if (EditorUtils.isInside(click.x(), click.y(), transportX + 116, transportY, 64, 18)) {
-            if (screen.state.serverPreviewRunning()) {
+        if (EditorUtils.isInside(click.x(), click.y(), screen.chrome.transportButtonX(x, width, 2), transportY, buttonWidth, 18)) {
+            if (screen.previewBridge.testRunningOrPending()) {
                 screen.previewBridge.stopServerPreview();
             } else {
-                screen.previewBridge.startWorldPreviewFromEditor(PendingPreviewAction.START);
+                screen.previewBridge.startInlinePreview(PendingPreviewAction.START);
             }
             return true;
         }
-        if (EditorUtils.isInside(click.x(), click.y(), transportX + 186, transportY, 46, 18)) {
+        if (EditorUtils.isInside(click.x(), click.y(), screen.chrome.transportButtonX(x, width, 3), transportY, buttonWidth, 18)) {
             screen.previewBridge.stopServerPreview();
+            return true;
+        }
+        if (EditorUtils.isInside(click.x(), click.y(), screen.chrome.transportButtonX(x, width, 4), transportY, buttonWidth, 18)) {
+            screen.state.togglePreviewMode();
             return true;
         }
         return false;
     }
 
     boolean handleTrackBarClick(double mouseX, double mouseY, int x, int y, int width, int height) {
-        int cursorX = x + 6;
+        if (EditorUtils.isInside(mouseX, mouseY, screen.timeline.timelineToggleX(x), y + 4,
+                EditorTimeline.TIMELINE_TOGGLE_WIDTH, height - 8)) {
+            screen.toggleTimelineFocus();
+            return true;
+        }
+        int cursorX = screen.timeline.trackTabsX(x);
+        int addWidth = 70;
+        int tabsRight = x + width - addWidth - 10;
         for (TrackData track : screen.state.visibleTracks()) {
+            if (cursorX + 88 > tabsRight) {
+                break;
+            }
             if (EditorUtils.isInside(mouseX, mouseY, cursorX + 4, y + 6, 12, 12)) {
                 screen.state.toggleTrackExpanded(track);
                 return true;
@@ -274,7 +300,6 @@ final class EditorDragHandler {
             }
             cursorX += 88 + 4;
         }
-        int addWidth = 70;
         if (EditorUtils.isInside(mouseX, mouseY, x + width - addWidth - 6, y + 4, addWidth, height - 8)) {
             screen.state.addTrack();
             return true;
@@ -282,17 +307,14 @@ final class EditorDragHandler {
         return false;
     }
 
-    boolean handleLeftPanelClick(double mouseX, double mouseY, int x, int y) {
-        if (screen.sceneMap.handleSceneMapAreaClick(mouseX, mouseY, x, y)) {
-            return true;
-        }
-        int rowY = y + 28 + (screen.leftPanelWidth() - 20) + 12;
+    boolean handleLeftPanelClick(double mouseX, double mouseY, int x, int y, int width) {
+        int rowY = y + 26;
         for (TrackData track : screen.state.tracks()) {
             if (EditorUtils.isInside(mouseX, mouseY, x + 10, rowY + 4, 14, 14)) {
                 screen.state.toggleTrackExpanded(track);
                 return true;
             }
-            if (EditorUtils.isInside(mouseX, mouseY, x + 6, rowY, screen.leftPanelWidth() - 12, 22)) {
+            if (EditorUtils.isInside(mouseX, mouseY, x + 6, rowY, width - 12, 22)) {
                 screen.state.setSelection(EditorSelection.track(track));
                 return true;
             }
@@ -308,8 +330,8 @@ final class EditorDragHandler {
         }
         EditorLayout editorLayout = screen.editorLayout();
         int timelineY = editorLayout.timelineY();
-        int contentX = editorLayout.centerX() + ChartEditorScreen.TIMELINE_LABEL_WIDTH;
-        int contentWidth = Math.max(48, editorLayout.centerWidth() - ChartEditorScreen.TIMELINE_LABEL_WIDTH);
+        int contentX = editorLayout.timelineContentX();
+        int contentWidth = editorLayout.timelineContentWidth();
         int contentBottom = timelineY + editorLayout.timelineHeight() - ChartEditorScreen.TIMELINE_AUDIO_STRIP_HEIGHT;
         List<TimelineLaneLayout> layouts = screen.timeline.buildTimelineLaneLayouts(timelineY + ChartEditorScreen.TIMELINE_RULER_HEIGHT);
         int left = Math.min(screen.selectionBox.startX(), screen.selectionBox.endX());
@@ -767,13 +789,16 @@ final class EditorDragHandler {
     }
 
     private boolean isInsideTimelineZoomBar(double mouseX, double mouseY, int contentX, int contentWidth, int rulerY) {
-        int zoomBarWidth = Math.min(TIMELINE_ZOOM_BAR_WIDTH, contentWidth - 10);
-        return EditorUtils.isInside(mouseX, mouseY, contentX, rulerY + 2, zoomBarWidth, TIMELINE_ZOOM_BAR_HEIGHT);
+        int zoomBarWidth = screen.timeline.zoomBarWidth(contentWidth);
+        return EditorUtils.isInside(mouseX, mouseY, screen.timeline.zoomBarX(contentX, contentWidth), rulerY + 2,
+                zoomBarWidth, TIMELINE_ZOOM_BAR_HEIGHT);
     }
 
     void setTimelineZoomFromMouseX(double mouseX, int contentX, int contentWidth) {
-        double progress = Math.max(0.1, Math.min(1.0, (mouseX - contentX) / Math.max(1.0, contentWidth)));
-        double targetBeats = 4.0 + (1.0 - progress) * (128.0 - 4.0);
+        int zoomBarX = screen.timeline.zoomBarX(contentX, contentWidth);
+        int zoomBarWidth = screen.timeline.zoomBarWidth(contentWidth);
+        double progress = Math.max(0.0, Math.min(1.0, (mouseX - zoomBarX) / Math.max(1.0, zoomBarWidth)));
+        double targetBeats = 4.0 + progress * (128.0 - 4.0);
         double factor = targetBeats / screen.state.beatsPerScreen();
         screen.state.zoom(factor);
     }
@@ -793,8 +818,6 @@ final class EditorDragHandler {
         screen.noteDragSnapshots.clear();
         screen.effectDragSnapshots.clear();
         screen.eventClipDragSnapshots.clear();
-        screen.mapNoteDragOrigins.clear();
-        screen.mapEffectDragOrigins.clear();
         screen.draggingHoldLengthNote = null;
         screen.dragAnchorHoldLength = 0.0;
         screen.draggingTrackEventEditor = null;
@@ -809,8 +832,6 @@ final class EditorDragHandler {
         screen.noteDragSnapshots.clear();
         screen.effectDragSnapshots.clear();
         screen.eventClipDragSnapshots.clear();
-        screen.mapNoteDragOrigins.clear();
-        screen.mapEffectDragOrigins.clear();
         screen.draggingTrackEventEditor = null;
         screen.draggingTrackEventSourceIndex = -1;
         screen.draggingTrackEventTargetIndex = -1;

@@ -68,6 +68,23 @@ public final class ChartProjectIo {
         return GSON.toJson(manifest.toOrderedMap());
     }
 
+    /**
+     * Preview-upload variant: same as {@link #toManifestJson(SongManifestData)} plus the
+     * per-upload {@code activeTrackId} inside the Editor-only {@code editor} block.
+     * Never used for file saves (the active track is session state, not project data).
+     */
+    @SuppressWarnings("unchecked")
+    public static String toManifestJson(SongManifestData manifest, int activeTrackId) {
+        Map<String, Object> map = manifest.toOrderedMap();
+        Object editor = map.get("editor");
+        Map<String, Object> editorMap = editor instanceof Map
+                ? (Map<String, Object>) editor
+                : new LinkedHashMap<>();
+        editorMap.put("activeTrackId", activeTrackId);
+        map.put("editor", editorMap);
+        return GSON.toJson(map);
+    }
+
     public static String toLevelJson(LevelData level) {
         return GSON.toJson(toLevelJsonObject(level));
     }
@@ -99,6 +116,10 @@ public final class ChartProjectIo {
             replaceMapList(manifest.unlockWorld(), getMapList(rawMap.get("unlockWorld")));
             replaceMapList(manifest.unlockNether(), getMapList(rawMap.get("unlockNether")));
             replaceMapList(manifest.unlockVoid(), getMapList(rawMap.get("unlockVoid")));
+            Object editor = rawMap.get("editor");
+            if (editor instanceof Map<?, ?> editorMap) {
+                manifest.setBeatsPerBar(getInt(editorMap, "beatsPerBar", manifest.beatsPerBar()));
+            }
         }
         return manifest;
     }
