@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-06 : MOD : 跨仓记忆与协作协议接入
+
+- AGENTS.md 新增中央记忆入口（`RhythMC-AGENTS/tasks/active/current-focus.md`）与 standing protocol（auto-commit+push、只 stage 自家文件、大事先问）。
+- 明确谱面 i18n 内嵌约定（与 RhythMC-Reborn 一致，写谱面时遵守）。
+
+## 2026-09-05 : MOD : UI COMMENTED OUT, BACK TO MVP
+
+- RmcChartClient.onInitializeClient body commented in full: keybinds, tick handling, preview handshake, render hooks all off; mod loads but does nothing, other signatures kept so it compiles.
+- 3 mixin injections commented: no TitleScreen button, no GameMenu intercept, no InGameHud editor layer.
+- 90 UI files left in place as dead (compiling) code pending rewrite; editing goes through Preview /pedit server commands.
+
 ## 2026-09-05 : MOD : 标尺壳元数据发送 + SceneMap/世界壳 stub 删除
 
 - `SongManifestData` 新增 `beatsPerBar`（默认 4，1..32 钳制）；`toOrderedMap` 末尾加 `editor:{beatsPerBar}` 块（manifest.yml 持久化 + 上传 JSON 自动携带）；`ChartProjectIo.loadManifest` 回读；`toManifestJson` 新增 `(data, activeTrackId)` 重载往 editor 块注入 activeTrackId（文件保存不用此重载）；`serializeCurrentChart` 改调重载（active 取 selectedTrack()，非 TRACK/NOTE 选择时回退首轨）。
