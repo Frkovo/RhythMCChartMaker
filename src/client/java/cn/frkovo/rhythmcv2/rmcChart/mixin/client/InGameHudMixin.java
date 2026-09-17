@@ -13,6 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 abstract class InGameHudMixin {
     @Inject(method = "render", at = @At("TAIL"))
     private void rmcChart$renderEditorHud(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
-        EditorHudRenderer.render(context);
+        // MVP-DISABLED (2026-09-05): mod UI commented out, rewrite pending.
+        // EditorHudRenderer.render(context);
     }
 }

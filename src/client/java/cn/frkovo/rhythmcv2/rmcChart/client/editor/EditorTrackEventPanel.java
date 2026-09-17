@@ -592,7 +592,7 @@ final class EditorTrackEventPanel {
     double defaultStartValueForEventLane(EventLaneType eventType) {
         return switch (eventType) {
             case SCALE_X, SCALE_Y, SCALE_Z -> 1.0;
-            case SPEED -> 8.0;
+            case SPEED -> 20.0;
             default -> 0.0;
         };
     }

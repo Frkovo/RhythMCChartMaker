@@ -1,17 +1,20 @@
 package cn.frkovo.rhythmcv2.rmcChart.chart.core;
 
+import cn.frkovo.rhythmcv2.rmcChart.chart.model.BpmPoint;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.NoteData;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.TrackData;
+
+import java.util.List;
 
 public final class ChartEvaluator {
     private ChartEvaluator() {
     }
 
-    public static TrackState evaluateTrack(TrackData track, double beat) {
+    public static TrackState evaluateTrack(TrackData track, List<BpmPoint> bpms, double beat) {
         return new TrackState(
                 track,
                 beat,
-                ChartMath.getDistance(track.speedEvents(), beat),
+                ChartMath.getDistanceTimeDomain(track.speedEvents(), bpms, beat),
                 ChartMath.getTransformation(track.xTransformEvents(), beat, 0.0),
                 ChartMath.getTransformation(track.yTransformEvents(), beat, 0.0),
                 ChartMath.getTransformation(track.zTransformEvents(), beat, 0.0),
@@ -24,8 +27,9 @@ public final class ChartEvaluator {
         );
     }
 
-    public static NoteState evaluateNote(TrackState trackState, NoteData note) {
-        double noteDistance = ChartMath.getDistance(trackState.track().speedEvents(), note.beat());
+    public static NoteState evaluateNote(TrackState trackState, List<BpmPoint> bpms, NoteData note) {
+        double noteDistance = ChartMath.getDistanceTimeDomain(
+                trackState.track().speedEvents(), bpms, note.beat());
         double distanceToHitPlane = noteDistance - trackState.distance() + note.pos().z() * trackState.zScale();
 
         double x = note.pos().x() * trackState.xScale();

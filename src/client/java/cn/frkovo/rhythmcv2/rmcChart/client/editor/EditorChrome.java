@@ -361,3 +361,4 @@ public class EditorChrome {
         context.fill(x, y, x + 1, y + height, color);
         context.fill(x + width - 1, y, x + width, y + height, color);
     }
+    }

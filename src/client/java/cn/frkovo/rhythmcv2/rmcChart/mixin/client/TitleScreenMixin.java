@@ -18,8 +18,9 @@ abstract class TitleScreenMixin extends Screen {
 
     @Inject(method = "init", at = @At("TAIL"))
     private void rmcChart$addCreateSongButton(CallbackInfo ci) {
-        addDrawableChild(ButtonWidget.builder(Text.literal("RhythMC Chart Maker"), button -> RmcChartClient.connectToPreviewServer(this))
-                .dimensions(this.width / 2 - 100, this.height / 4 + 180, 200, 20)
-                .build());
+        // MVP-DISABLED (2026-09-05): mod UI commented out, rewrite pending.
+        // addDrawableChild(ButtonWidget.builder(Text.literal("RhythMC Chart Maker"), button -> RmcChartClient.connectToPreviewServer(this))
+        //         .dimensions(this.width / 2 - 100, this.height / 4 + 180, 200, 20)
+        //         .build());
     }
 }

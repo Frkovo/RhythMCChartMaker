@@ -287,9 +287,14 @@ final class EditorPropertyPanel {
         currentY = trackEvents.layout(panelX, currentY);
         if (screen.state.selection().kind() == EditorSelection.Kind.NOTE && screen.state.selection().note() != null) {
             propertyLayout.setTransformCard(panelX, currentY + 8, screen.rightPanelInnerWidth());
+            layoutNoteTransformFields(panelX, currentY + 8, screen.rightPanelInnerWidth(), viewportTop, viewportBottom);
             currentY += 110;
         } else {
             propertyLayout.clearTransformCard();
+            for (LabeledField field : noteTransformFields) {
+                field.widget.visible = false;
+                field.widget.active = false;
+            }
         }
         int footerY = layout.topY() + layout.panelHeight() - 34;
         int footerButtonWidth = (screen.rightPanelInnerWidth()) / 2;
@@ -298,6 +303,30 @@ final class EditorPropertyPanel {
         resetButton.setPosition(panelX + footerButtonWidth + 3, footerY);
         resetButton.setWidth(footerButtonWidth - 3);
         layoutQuickInspectorButtons(panelX, footerY - 22);
+    }
+
+    private void layoutNoteTransformFields(int panelX, int cardY, int innerWidth, int viewportTop, int viewportBottom) {
+        int axisX = panelX + 64;
+        int axisAvailable = Math.max(3, innerWidth - 64);
+        int columnWidth = Math.max(1, (axisAvailable - 8) / 3);
+        int rowY = cardY + 22;
+        for (int row = 0; row < 3; row++) {
+            for (int col = 0; col < 3; col++) {
+                int index = row * 3 + col;
+                if (index >= noteTransformFields.size()) {
+                    continue;
+                }
+                LabeledField field = noteTransformFields.get(index);
+                int fieldX = axisX + col * (columnWidth + 4);
+                field.widget.setPosition(fieldX, rowY);
+                field.widget.setWidth(columnWidth);
+                boolean insideViewport = rowY >= viewportTop && rowY + 18 <= viewportBottom;
+                field.widget.visible = insideViewport;
+                field.widget.active = insideViewport;
+            }
+            rowY += 28;
+        }
+        propertyLayout.setLastTransformCardBottom(rowY);
     }
 
     void layoutQuickInspectorButtons(int panelX, int buttonY) {
@@ -823,7 +852,8 @@ final class EditorPropertyPanel {
         context.drawText(screen.getTextRenderer(), Text.literal("Transform"), panelX + 8, headerY + 4, 0x8FD6FF, false);
         context.fill(panelX + 64, headerY + 9, panelX + width - 8, headerY + 10, 0x335F86A1);
         y += 22;
-        int colWidth = (width - 24) / 3;
+        int axisX = panelX + 64;
+        int colWidth = Math.max(1, (Math.max(3, width - 64) - 8) / 3);
         String[] labels = {"X", "Y", "Z"};
         for (int row = 0; row < 3; row++) {
             String rowLabel = switch (row) {
@@ -838,16 +868,10 @@ final class EditorPropertyPanel {
                 if (fieldIndex >= noteTransformFields.size()) {
                     continue;
                 }
-                LabeledField field = noteTransformFields.get(fieldIndex);
-                int fieldX = panelX + 64 + col * (colWidth + 4);
-                field.widget.setPosition(fieldX, y);
-                field.widget.setWidth(colWidth);
-                field.widget.visible = true;
-                field.widget.active = true;
+                int fieldX = axisX + col * (colWidth + 4);
                 context.drawText(screen.getTextRenderer(), Text.literal(labels[col]), fieldX, y - 10, screen.UI_DIM, false);
             }
             y += 28;
         }
-        propertyLayout.setLastTransformCardBottom(y);
     }
 }

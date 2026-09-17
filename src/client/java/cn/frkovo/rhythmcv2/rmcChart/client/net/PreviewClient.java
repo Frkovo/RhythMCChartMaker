@@ -150,7 +150,7 @@ public final class PreviewClient {
         ClientPlayNetworking.send(new ChartPreviewPayload(endBuf));
     }
 
-    public void sendPreviewStart(double startBeat) {
+    public void sendPreviewStart(double startBeat, byte mode) {
         if (!ensureReady()) {
             return;
         }
@@ -158,16 +158,24 @@ public final class PreviewClient {
         buf.writeInt(ChartPreviewChannel.OP_PREVIEW_START);
         buf.writeDouble(startBeat);
         buf.writeLong(System.currentTimeMillis());
+        buf.writeByte(mode);
         ClientPlayNetworking.send(new ChartPreviewPayload(buf));
     }
 
-    public void sendPreviewStop() {
+    public boolean sendPreviewStop() {
         if (!ensureReady()) {
-            return;
+            return false;
         }
-        PacketByteBuf buf = new PacketByteBuf(Unpooled.buffer());
-        buf.writeInt(ChartPreviewChannel.OP_PREVIEW_STOP);
-        ClientPlayNetworking.send(new ChartPreviewPayload(buf));
+        try {
+            PacketByteBuf buf = new PacketByteBuf(Unpooled.buffer());
+            buf.writeInt(ChartPreviewChannel.OP_PREVIEW_STOP);
+            ClientPlayNetworking.send(new ChartPreviewPayload(buf));
+            return true;
+        } catch (RuntimeException exception) {
+            emit(new PreviewEvent(EventType.ERROR, false,
+                    "Preview stop could not be sent: " + exception.getMessage(), 0L));
+            return false;
+        }
     }
 
     public void sendPreviewRestart(double newStartBeat) {
@@ -230,7 +238,7 @@ public final class PreviewClient {
             return;
         }
         PacketByteBuf buf = new PacketByteBuf(Unpooled.buffer());
-        buf.writeInt(ChartPreviewChannel.OP_EDITOR_OPEN);
+        buf.writeInt(ChartPreviewChannel.OP_C2S_EDITOR_OPEN);
         writeUtf8String(buf, data);
         ClientPlayNetworking.send(new ChartPreviewPayload(buf));
     }
@@ -240,7 +248,7 @@ public final class PreviewClient {
             return;
         }
         PacketByteBuf buf = new PacketByteBuf(Unpooled.buffer());
-        buf.writeInt(ChartPreviewChannel.OP_EDITOR_SELECT);
+        buf.writeInt(ChartPreviewChannel.OP_C2S_EDITOR_SELECT);
         writeUtf8String(buf, data);
         ClientPlayNetworking.send(new ChartPreviewPayload(buf));
     }
@@ -281,11 +289,11 @@ public final class PreviewClient {
                 String message = readUtf8String(buf);
                 emit(new PreviewEvent(EventType.FILE_UPLOAD_ACK, ok, message, 0L, uploadId, fileType, 0, 0, "", ""));
             }
-            case ChartPreviewChannel.OP_EDITOR_OPEN -> {
+            case ChartPreviewChannel.OP_S2C_EDITOR_OPEN -> {
                 String data = readUtf8String(buf);
                 emit(new PreviewEvent(EventType.EDITOR_OPEN, true, null, 0L, "", "", 0, 0, "", data));
             }
-            case ChartPreviewChannel.OP_EDITOR_SELECT -> {
+            case ChartPreviewChannel.OP_S2C_EDITOR_SELECT -> {
                 String data = readUtf8String(buf);
                 emit(new PreviewEvent(EventType.EDITOR_SELECT, true, null, 0L, "", "", 0, 0, "", data));
             }
@@ -300,7 +308,7 @@ public final class PreviewClient {
             globalHandler.accept(event);
         }
         Consumer<PreviewEvent> handler = eventHandler;
-        if (handler != null) {
+        if (handler != null && event.type() != EventType.EDITOR_OPEN && event.type() != EventType.EDITOR_SELECT) {
             handler.accept(event);
         }
     }

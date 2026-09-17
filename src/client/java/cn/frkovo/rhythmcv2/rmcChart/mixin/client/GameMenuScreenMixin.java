@@ -11,9 +11,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 abstract class GameMenuScreenMixin {
     @Inject(method = "init", at = @At("HEAD"), cancellable = true)
     private void rmcChart$returnToEditorFromWorldPreview(CallbackInfo ci) {
-        if (RmcChartClient.shouldReturnToEditorFromWorldPreview()) {
-            RmcChartClient.returnToEditorFromWorldPreview();
-            ci.cancel();
-        }
+        // MVP-DISABLED (2026-09-05): mod UI commented out, rewrite pending.
+        // if (RmcChartClient.shouldReturnToEditorFromWorldPreview()) {
+        //     RmcChartClient.returnToEditorFromWorldPreview();
+        //     ci.cancel();
+        // }
     }
 }

@@ -22,13 +22,14 @@ final class EditorPreviewBridge {
 
     void uploadServerPreview(PendingPreviewAction action) {
         PreviewClient previewClient = RmcChartClient.getPreviewClient();
+        if (RmcChartClient.isPreviewStopPending()) {
+            openWorldPreviewOnReady = false;
+            screen.state.setStatus("Waiting for preview server to stop");
+            return;
+        }
         if (!previewClient.isReady()) {
             openWorldPreviewOnReady = false;
             screen.state.setStatus("Preview server not ready: " + previewClient.handshakeMessage());
-            return;
-        }
-        if (!screen.propertyPanel.applyFieldsToSelection()) {
-            openWorldPreviewOnReady = false;
             return;
         }
         try {
@@ -52,17 +53,43 @@ final class EditorPreviewBridge {
         uploadServerPreview(action);
     }
 
+    void startInlinePreview(PendingPreviewAction action) {
+        openWorldPreviewOnReady = false;
+        uploadServerPreview(action);
+    }
+
+    boolean previewRequestPending() {
+        return screen.state.previewUploading()
+                || pendingPreviewAction != PendingPreviewAction.NONE
+                || Double.isFinite(pendingServerPreviewBeat)
+                || RmcChartClient.hasPendingWorldTest()
+                || RmcChartClient.isPreviewStopPending();
+    }
+
+    boolean testRunningOrPending() {
+        return screen.state.serverPreviewRunning() || previewRequestPending();
+    }
+
     void stopServerPreview() {
         PreviewClient previewClient = RmcChartClient.getPreviewClient();
+        if (RmcChartClient.isPreviewStopPending()) {
+            screen.state.setStatus("Waiting for preview server to stop");
+            return;
+        }
+        pendingPreviewAction = PendingPreviewAction.NONE;
+        pendingServerPreviewBeat = Double.NaN;
+        openWorldPreviewOnReady = false;
+        RmcChartClient.clearPendingWorldTest();
+        screen.state.markPreviewUploadFailed();
         if (!previewClient.isReady()) {
             screen.state.stopServerPreviewAudio("Preview server not ready: " + previewClient.handshakeMessage());
             return;
         }
-        previewClient.sendPreviewStop();
-        pendingPreviewAction = PendingPreviewAction.NONE;
-        pendingServerPreviewBeat = Double.NaN;
-        openWorldPreviewOnReady = false;
-        screen.state.stopServerPreviewAudio("Server preview stop requested");
+        if (RmcChartClient.requestPreviewStop()) {
+            screen.state.stopServerPreviewAudio("Server preview stop requested");
+        } else {
+            screen.state.stopServerPreviewAudio("Preview stop could not be sent");
+        }
     }
 
     void handleServerPreviewEvent(PreviewEvent event) {
@@ -70,8 +97,15 @@ final class EditorPreviewBridge {
             case HELLO_ACK -> screen.state.setStatus(event.ok()
                     ? "Preview server ready. You can edit now. Default schematic: " + event.defaultSchematicName()
                     : "Preview handshake rejected: " + event.error());
-            case CHART_LOAD_ACK -> handleServerPreviewLoadAck(event);
+            case CHART_LOAD_ACK -> {
+                if (!RmcChartClient.isPreviewStopPending()) {
+                    handleServerPreviewLoadAck(event);
+                }
+            }
             case PREVIEW_READY -> {
+                if (RmcChartClient.isPreviewStopPending() || !Double.isFinite(pendingServerPreviewBeat)) {
+                    return;
+                }
                 double beat = Double.isFinite(pendingServerPreviewBeat) ? pendingServerPreviewBeat : screen.state.playheadBeat();
                 screen.state.startServerPreviewAudio(beat);
                 pendingServerPreviewBeat = Double.NaN;
@@ -79,7 +113,7 @@ final class EditorPreviewBridge {
                 if (openWorldPreviewOnReady && screen.getClient() != null && screen.getClient().world != null) {
                     openWorldPreviewOnReady = false;
                     RmcChartClient.enterWorldPreviewFromEditor();
-                    screen.getClient().setScreen(null);
+                    screen.close();
                 }
             }
             case PREVIEW_STOPPED -> screen.state.stopServerPreviewAudio("Server preview stopped");
@@ -144,7 +178,7 @@ final class EditorPreviewBridge {
         screen.state.markPreviewChartUploaded();
         double beat = Double.isFinite(pendingServerPreviewBeat) ? pendingServerPreviewBeat : screen.state.playheadBeat();
         if (pendingPreviewAction == PendingPreviewAction.START) {
-            RmcChartClient.getPreviewClient().sendPreviewStart(beat);
+            RmcChartClient.getPreviewClient().sendPreviewStart(beat, screen.state.previewMode());
             screen.state.setStatus("Preview uploaded; starting server visuals @ " + screen.propertyPanel.format(beat));
         } else if (pendingPreviewAction == PendingPreviewAction.RESTART) {
             RmcChartClient.getPreviewClient().sendPreviewRestart(beat);

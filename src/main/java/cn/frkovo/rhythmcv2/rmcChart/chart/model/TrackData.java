@@ -24,7 +24,7 @@ public class TrackData {
 
     public static TrackData createDefault(int id) {
         TrackData track = new TrackData(id);
-        track.speedEvents.add(new NumEventData(0.0, 4096.0, 8.0, 8.0, EasingType.LINEAR));
+        track.speedEvents.add(new NumEventData(0.0, 4096.0, 20.0, 20.0, EasingType.LINEAR));
         track.xTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
         track.yTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
         track.zTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));
@@ -39,7 +39,7 @@ public class TrackData {
 
     public void ensureDefaultEvents() {
         if (speedEvents.isEmpty()) {
-            speedEvents.add(new NumEventData(0.0, 4096.0, 8.0, 8.0, EasingType.LINEAR));
+            speedEvents.add(new NumEventData(0.0, 4096.0, 20.0, 20.0, EasingType.LINEAR));
         }
         if (xTransformEvents.isEmpty()) {
             xTransformEvents.add(new NumEventData(0.0, 4096.0, 0.0, 0.0, EasingType.LINEAR));

@@ -77,156 +77,157 @@ public class RmcChartClient implements ClientModInitializer {
     private static final boolean[] toolKeyDown = new boolean[9];
     @Override
     public void onInitializeClient() {
-        openEditorKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.open_editor",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_F,
-                KeyBinding.Category.MISC
-        ));
-        playPreviewKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.play_preview",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_R,
-                KeyBinding.Category.MISC
-        ));
-        cancelKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.cancel",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_ESCAPE,
-                KeyBinding.Category.MISC
-        ));
-        deleteKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.delete",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_DELETE,
-                KeyBinding.Category.MISC
-        ));
-        toggleLocalPlaybackKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.toggle_local_playback",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_SPACE,
-                KeyBinding.Category.MISC
-        ));
-        seekBackwardKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.seek_backward",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_LEFT,
-                KeyBinding.Category.MISC
-        ));
-        seekForwardKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.seek_forward",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_RIGHT,
-                KeyBinding.Category.MISC
-        ));
-        smoothingPopupKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.smoothing_popup",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_P,
-                KeyBinding.Category.MISC
-        ));
-        undoKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.undo",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_Z,
-                KeyBinding.Category.MISC
-        ));
-        redoKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.redo",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_Y,
-                KeyBinding.Category.MISC
-        ));
-        newProjectKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.new_project",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_N,
-                KeyBinding.Category.MISC
-        ));
-        openProjectKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.open_project",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_O,
-                KeyBinding.Category.MISC
-        ));
-        selectAllKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.select_all",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_A,
-                KeyBinding.Category.MISC
-        ));
-        copyKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.copy",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_C,
-                KeyBinding.Category.MISC
-        ));
-        cutKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.cut",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_X,
-                KeyBinding.Category.MISC
-        ));
-        pasteKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.paste",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_V,
-                KeyBinding.Category.MISC
-        ));
-        saveKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.save",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_S,
-                KeyBinding.Category.MISC
-        ));
-        cameraModeKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.rmc-chart.camera_mode",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_B,
-                KeyBinding.Category.MISC
-        ));
+        // MVP-DISABLED (2026-09-05): mod UI commented out in full, rewrite pending.
+//        openEditorKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.open_editor",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_F,
+//                KeyBinding.Category.MISC
+//        ));
+//        playPreviewKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.play_preview",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_R,
+//                KeyBinding.Category.MISC
+//        ));
+//        cancelKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.cancel",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_ESCAPE,
+//                KeyBinding.Category.MISC
+//        ));
+//        deleteKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.delete",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_DELETE,
+//                KeyBinding.Category.MISC
+//        ));
+//        toggleLocalPlaybackKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.toggle_local_playback",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_SPACE,
+//                KeyBinding.Category.MISC
+//        ));
+//        seekBackwardKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.seek_backward",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_LEFT,
+//                KeyBinding.Category.MISC
+//        ));
+//        seekForwardKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.seek_forward",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_RIGHT,
+//                KeyBinding.Category.MISC
+//        ));
+//        smoothingPopupKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.smoothing_popup",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_P,
+//                KeyBinding.Category.MISC
+//        ));
+//        undoKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.undo",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_Z,
+//                KeyBinding.Category.MISC
+//        ));
+//        redoKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.redo",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_Y,
+//                KeyBinding.Category.MISC
+//        ));
+//        newProjectKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.new_project",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_N,
+//                KeyBinding.Category.MISC
+//        ));
+//        openProjectKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.open_project",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_O,
+//                KeyBinding.Category.MISC
+//        ));
+//        selectAllKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.select_all",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_A,
+//                KeyBinding.Category.MISC
+//        ));
+//        copyKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.copy",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_C,
+//                KeyBinding.Category.MISC
+//        ));
+//        cutKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.cut",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_X,
+//                KeyBinding.Category.MISC
+//        ));
+//        pasteKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.paste",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_V,
+//                KeyBinding.Category.MISC
+//        ));
+//        saveKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.save",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_S,
+//                KeyBinding.Category.MISC
+//        ));
+//        cameraModeKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+//                "key.rmc-chart.camera_mode",
+//                InputUtil.Type.KEYSYM,
+//                GLFW.GLFW_KEY_B,
+//                KeyBinding.Category.MISC
+//        ));
 
-        PREVIEW_CLIENT.register();
-        PREVIEW_CLIENT.setGlobalEventHandler(RmcChartClient::handlePreviewEvent);
-        WorldRenderEvents.END_MAIN.register(EditorWorldGizmoRenderer::endMain);
+//        PREVIEW_CLIENT.register();
+//        PREVIEW_CLIENT.setGlobalEventHandler(RmcChartClient::handlePreviewEvent);
+//        WorldRenderEvents.END_MAIN.register(EditorWorldGizmoRenderer::endMain);
 
-        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
-            PREVIEW_CLIENT.resetHandshake("Waiting for RhythMC-Preview handshake");
-            helloRetryTicks = 0;
-            nextHelloRetryTick = 5;
-        });
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
-            helloRetryTicks = -1;
-            worldPreviewActive = false;
-            pendingWorldTestBeat = Double.NaN;
-            previewStopPending = false;
-            globalSyncInFlight = false;
-            EditorWorldPlacement.invalidateAnchor();
-            EditorCameraController.detach(client);
-            EDITOR_STATE.stopServerPreviewAudio("Disconnected from preview server");
-            PREVIEW_CLIENT.resetHandshake("Disconnected");
-        });
+//        ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+//            PREVIEW_CLIENT.resetHandshake("Waiting for RhythMC-Preview handshake");
+//            helloRetryTicks = 0;
+//            nextHelloRetryTick = 5;
+//        });
+//        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+//            helloRetryTicks = -1;
+//            worldPreviewActive = false;
+//            pendingWorldTestBeat = Double.NaN;
+//            previewStopPending = false;
+//            globalSyncInFlight = false;
+//            EditorWorldPlacement.invalidateAnchor();
+//            EditorCameraController.detach(client);
+//            EDITOR_STATE.stopServerPreviewAudio("Disconnected from preview server");
+//            PREVIEW_CLIENT.resetHandshake("Disconnected");
+//        });
 
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            tickPreviewHandshake(client);
-            if (client != null) {
-                if (worldPreviewActive || editorSessionActive) {
-                    syncEditorToolFromHotbar(client, false);
-                    EditorCameraController.tick(client);
-                    if (!(client.currentScreen instanceof ChartEditorScreen)) {
-                        EDITOR_STATE.tick();
-                        tickGlobalChartSync();
-                    }
-                    handleGlobalEditorHotkeys(client);
-                    handleGlobalToolHotkeys(client);
-                }
-                boolean hotkeyPressed = InputUtil.isKeyPressed(client.getWindow(), openEditorKey.getDefaultKey().getCode());
-                if (hotkeyPressed && !editorHotkeyDown && client.player != null) {
-                    toggleEditorScreen();
-                }
-                editorHotkeyDown = hotkeyPressed;
-            }
-        });
+//        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+//            tickPreviewHandshake(client);
+//            if (client != null) {
+//                if (worldPreviewActive || editorSessionActive) {
+//                    syncEditorToolFromHotbar(client, false);
+//                    EditorCameraController.tick(client);
+//                    if (!(client.currentScreen instanceof ChartEditorScreen)) {
+//                        EDITOR_STATE.tick();
+//                        tickGlobalChartSync();
+//                    }
+//                    handleGlobalEditorHotkeys(client);
+//                    handleGlobalToolHotkeys(client);
+//                }
+//                boolean hotkeyPressed = InputUtil.isKeyPressed(client.getWindow(), openEditorKey.getDefaultKey().getCode());
+//                if (hotkeyPressed && !editorHotkeyDown && client.player != null) {
+//                    toggleEditorScreen();
+//                }
+//                editorHotkeyDown = hotkeyPressed;
+//            }
+//        });
     }
 
     private static void handleGlobalToolHotkeys(MinecraftClient client) {
@@ -256,7 +257,8 @@ public class RmcChartClient implements ClientModInitializer {
         TrackData track = EDITOR_STATE.selectedTrack();
         double beat = EDITOR_STATE.playheadBeat();
         MinecraftClient client = MinecraftClient.getInstance();
-        double[] pos = EditorWorldPlacement.crosshairToNotePos(client, track, beat);
+        double[] pos = EditorWorldPlacement.crosshairToNotePos(client, track,
+                EDITOR_STATE.level().meta().bpms(), beat);
         if (pos != null) {
             EDITOR_STATE.addNoteOfTypeAt(track, beat, tool.noteType(), pos[0], pos[1]);
             EDITOR_STATE.setStatus("Placed " + tool.label() + " at (" + pos[0] + ", " + pos[1] + ") beat " + beat);

@@ -28,6 +28,8 @@ import java.util.Set;
 import java.util.LinkedHashSet;
 
 public final class EditorTimeline {
+    static final int TIMELINE_TOGGLE_WIDTH = 68;
+
     final ChartEditorScreen screen;
 
     public EditorTimeline(ChartEditorScreen screen) {
@@ -38,8 +40,9 @@ public final class EditorTimeline {
         context.fill(x, y, x + width, y + height, screen.UI_PANEL);
         screen.chrome.drawOutline(context, x, y, width, height, screen.UI_BORDER);
 
-        int contentX = x + screen.TIMELINE_LABEL_WIDTH;
-        int contentWidth = Math.max(48, width - screen.TIMELINE_LABEL_WIDTH);
+        EditorLayout editorLayout = screen.editorLayout();
+        int contentX = editorLayout.timelineContentX();
+        int contentWidth = editorLayout.timelineContentWidth();
         int contentY = y + screen.TIMELINE_RULER_HEIGHT;
         int audioY = y + height - screen.TIMELINE_AUDIO_STRIP_HEIGHT;
         int contentHeight = Math.max(48, audioY - contentY);
@@ -140,11 +143,12 @@ public final class EditorTimeline {
             context.drawText(screen.getTextRenderer(), Text.literal(format(bpm.bpm()) + " BPM"), labelX, y + 12, 0xFF8EEFFF, false);
         }
         context.disableScissor();
-        int zoomBarX = contentX + contentWidth - screen.TIMELINE_ZOOM_BAR_WIDTH - 8;
+        int zoomBarWidth = zoomBarWidth(contentWidth);
+        int zoomBarX = zoomBarX(contentX, contentWidth);
         int zoomBarY = y + 7;
         context.drawText(screen.getTextRenderer(), Text.literal("Zoom"), zoomBarX - 32, y + 4, 0x9BC1D7, false);
-        context.fill(zoomBarX, zoomBarY, zoomBarX + screen.TIMELINE_ZOOM_BAR_WIDTH, zoomBarY + screen.TIMELINE_ZOOM_BAR_HEIGHT, 0x66354757);
-        int handleX = zoomBarX + (int) Math.round(((screen.state.beatsPerScreen() - 4.0) / 124.0) * (screen.TIMELINE_ZOOM_BAR_WIDTH - 8));
+        context.fill(zoomBarX, zoomBarY, zoomBarX + zoomBarWidth, zoomBarY + screen.TIMELINE_ZOOM_BAR_HEIGHT, 0x66354757);
+        int handleX = zoomBarX + (int) Math.round(((screen.state.beatsPerScreen() - 4.0) / 124.0) * Math.max(1, zoomBarWidth - 8));
         context.fill(handleX, zoomBarY - 2, handleX + 8, zoomBarY + screen.TIMELINE_ZOOM_BAR_HEIGHT + 2, 0xFF9AD9FF);
         context.drawText(screen.getTextRenderer(), Text.literal(format(screen.state.beatsPerScreen()) + " beats"), zoomBarX - 88, y + 4, 0xCBE8F8, false);
     }
@@ -256,7 +260,8 @@ public final class EditorTimeline {
     private void drawAudioStrip(DrawContext context, int x, int y, int width, int height, int contentX, int contentWidth) {
         context.fill(x, y, contentX, y + height, 0xE019232C);
         context.drawText(screen.getTextRenderer(), Text.literal("Audio"), x + 10, y + 8, screen.UI_TEXT, false);
-        screen.chrome.drawTrimmedText(context, screen.propertyPanel.audioSummary(), x + 10, y + 22, screen.TIMELINE_LABEL_WIDTH - 18, screen.UI_MUTED);
+        screen.chrome.drawTrimmedText(context, screen.propertyPanel.audioSummary(), x + 10, y + 22,
+                Math.max(24, contentX - x - 18), screen.UI_MUTED);
         context.fill(contentX, y, contentX + contentWidth, y + height, 0xD3131A20);
         context.enableScissor(contentX + 1, y + 1, contentX + contentWidth - 1, y + height - 1);
         drawTimelineGrid(context, contentX, y, contentWidth, height);
@@ -268,9 +273,21 @@ public final class EditorTimeline {
         context.fill(x, y, x + width, y + height, screen.UI_PANEL_STRONG);
         screen.chrome.drawOutline(context, x, y, width, height, screen.UI_BORDER);
 
-        int cursorX = x + 6;
+        int toggleX = timelineToggleX(x);
+        int toggleColor = screen.timelineFocused() ? 0xAA2F5F9D : 0x77303A44;
+        context.fill(toggleX, y + 4, toggleX + TIMELINE_TOGGLE_WIDTH, y + height - 4, toggleColor);
+        context.drawText(screen.getTextRenderer(),
+                Text.literal(screen.timelineFocused() ? "Timeline -" : "Timeline +"),
+                toggleX + 6, y + 10, 0xFFFFFFFF, false);
+
+        int addWidth = 70;
+        int addX = x + width - addWidth - 6;
+        int cursorX = trackTabsX(x);
         for (TrackData track : screen.state.visibleTracks()) {
             int tabWidth = 88;
+            if (cursorX + tabWidth > addX - 4) {
+                break;
+            }
             boolean selected = screen.state.selectedTrack() == track;
             int fill = selected ? 0xCC2F5F9D : 0x66303030;
             context.fill(cursorX, y + 4, cursorX + tabWidth, y + height - 4, fill);
@@ -280,9 +297,16 @@ public final class EditorTimeline {
             cursorX += tabWidth + 4;
         }
 
-        int addWidth = 70;
-        context.fill(x + width - addWidth - 6, y + 4, x + width - 6, y + height - 4, 0x66557733);
-        context.drawText(screen.getTextRenderer(), Text.literal("+ Track"), x + width - addWidth + 8, y + 10, 0xFFFFFFFF, false);
+        context.fill(addX, y + 4, x + width - 6, y + height - 4, 0x66557733);
+        context.drawText(screen.getTextRenderer(), Text.literal("+ Track"), addX + 14, y + 10, 0xFFFFFFFF, false);
+    }
+
+    int timelineToggleX(int trackBarX) {
+        return trackBarX + 6;
+    }
+
+    int trackTabsX(int trackBarX) {
+        return timelineToggleX(trackBarX) + TIMELINE_TOGGLE_WIDTH + 4;
     }
 
     int countTrackEvents(TrackData track) {
@@ -418,10 +442,34 @@ public final class EditorTimeline {
 
     void scrollTimelineLanes(int direction) {
         EditorLayout layout = screen.editorLayout();
+        if (!layout.timelineVisible()) {
+            screen.setTimelineFocused(true);
+            layout = screen.editorLayout();
+        }
         int contentHeight = layout.timelineHeight() - screen.TIMELINE_RULER_HEIGHT - screen.TIMELINE_AUDIO_STRIP_HEIGHT;
         int page = Math.max(24, contentHeight - 24);
         int maxScroll = Math.max(0, totalTimelineLaneHeight() - contentHeight);
         screen.trackScrollY = EditorUtils.clamp(screen.trackScrollY + direction * page, 0, maxScroll);
+    }
+
+    void clampTimelineLaneScroll() {
+        EditorLayout layout = screen.editorLayout();
+        if (!layout.timelineVisible()) {
+            screen.trackScrollY = Math.max(0, screen.trackScrollY);
+            return;
+        }
+        int contentHeight = Math.max(1,
+                layout.timelineHeight() - screen.TIMELINE_RULER_HEIGHT - screen.TIMELINE_AUDIO_STRIP_HEIGHT);
+        int maxScroll = Math.max(0, totalTimelineLaneHeight() - contentHeight);
+        screen.trackScrollY = EditorUtils.clamp(screen.trackScrollY, 0, maxScroll);
+    }
+
+    int zoomBarWidth(int contentWidth) {
+        return Math.max(24, Math.min(96, contentWidth - 24));
+    }
+
+    int zoomBarX(int contentX, int contentWidth) {
+        return contentX + contentWidth - zoomBarWidth(contentWidth) - 8;
     }
 
     TimelineLaneLayout timelineLaneAt(List<TimelineLaneLayout> layouts, double mouseY) {

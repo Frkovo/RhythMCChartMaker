@@ -24,6 +24,8 @@ public final class ChartPreviewChannel {
     public static final int OP_FILE_UPLOAD_START = 9;
     public static final int OP_FILE_UPLOAD_CHUNK = 10;
     public static final int OP_FILE_UPLOAD_END = 11;
+    public static final int OP_C2S_EDITOR_OPEN = 12;
+    public static final int OP_C2S_EDITOR_SELECT = 13;
 
     // Server -> Client
     public static final int OP_HELLO_ACK = 101;
@@ -32,13 +34,17 @@ public final class ChartPreviewChannel {
     public static final int OP_PREVIEW_STOPPED = 104;
     public static final int OP_ERROR = 105;
     public static final int OP_FILE_UPLOAD_ACK = 106;
-    public static final int OP_EDITOR_OPEN = 107;
-    public static final int OP_EDITOR_SELECT = 108;
+    public static final int OP_S2C_EDITOR_OPEN = 107;
+    public static final int OP_S2C_EDITOR_SELECT = 108;
 
     public static final int PROTOCOL_VERSION = 2;
     public static final String FILE_TYPE_SCHEMATIC = "SCHEMATIC";
     public static final String FILE_TYPE_AUDIO = "AUDIO";
     public static final String DEFAULT_SCHEMATIC_NAME = "VILLAGE.schem";
+
+    // Preview modes (trailing byte of PREVIEW_START)
+    public static final byte PREVIEW_MODE_AUTO = 0;
+    public static final byte PREVIEW_MODE_JUDGE = 1;
 
     /** Safe max payload size for a single plugin message (well under the ~32KB Bukkit limit). */
     public static final int SAFE_PAYLOAD_BYTES = 28_000;

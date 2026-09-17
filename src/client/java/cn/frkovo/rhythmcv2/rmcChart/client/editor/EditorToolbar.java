@@ -1,78 +1,80 @@
 package cn.frkovo.rhythmcv2.rmcChart.client.editor;
 
-import cn.frkovo.rhythmcv2.rmcChart.client.editor.model.*;
 import cn.frkovo.rhythmcv2.rmcChart.chart.model.ChartDifficulty;
-import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
+
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Top-bar widgets: project actions (New/Open/Save/Audio) on the left and a
+ * compact difficulty segmented control right after them. No menu-tab system;
+ * every button is a real, always-visible action.
+ */
 class EditorToolbar {
+    private static final int BUTTON_HEIGHT = 18;
+    private static final int ACTION_WIDTH = 56;
+    private static final int BUTTON_GAP = 4;
+    private static final int SECTION_GAP = 14;
+    private static final int MIN_DIFFICULTY_WIDTH = 46;
+    private static final int MAX_DIFFICULTY_WIDTH = 72;
+
     private final ChartEditorScreen screen;
-    final List<ToolbarActionButton> toolbarActionButtons = new ArrayList<>();
-    final List<ButtonWidget> toolbarMenuTabs = new ArrayList<>();
+    private final List<DifficultyButton> difficultyButtons = new ArrayList<>();
 
     EditorToolbar(ChartEditorScreen screen) {
         this.screen = screen;
     }
 
     void clearToolbar() {
-        toolbarActionButtons.clear();
-        toolbarMenuTabs.clear();
+        difficultyButtons.clear();
     }
 
-    void addTopButtons(int y) {
-        ToolbarMenu[] menus = ToolbarMenu.values();
-        int tabX = 10;
-        for (ToolbarMenu menu : menus) {
-            ButtonWidget tab = ButtonWidget.builder(Text.literal(menu.label), b -> {
-                screen.activeToolbarMenu = screen.activeToolbarMenu == menu ? ToolbarMenu.FILE : menu;
-                updateToolbarButtons();
-            }).dimensions(tabX, y, 70, 18).build();
-            screen.publicAddDrawableChild(tab);
-            toolbarMenuTabs.add(tab);
-            tabX += 74;
-        }
-        int actionX = tabX + 10;
-        int actionY = y - 1;
-        createToolbarAction(ToolbarMenu.FILE, actionX, actionY, 60, "New", b -> screen.actions.newProject());
-        createToolbarAction(ToolbarMenu.FILE, actionX + 64, actionY, 60, "Open", b -> screen.actions.openProjectBrowser());
-        createToolbarAction(ToolbarMenu.FILE, actionX + 128, actionY, 60, "Save", b -> screen.actions.saveProject());
-        createToolbarAction(ToolbarMenu.FILE, actionX + 192, actionY, 60, "Audio", b -> screen.actions.reloadAudio());
+    /** @return the x position where the difficulty selector may start */
+    int addTopButtons(int y) {
+        int x = ChartEditorScreen.OUTER_PADDING;
+        x = addAction(x, y, "New", b -> screen.actions.openNewProjectWizard());
+        x = addAction(x, y, "Open", b -> screen.actions.openProjectBrowser());
+        x = addAction(x, y, "Save", b -> screen.actions.saveProject());
+        x = addAction(x, y, "Audio", b -> screen.actions.reloadAudio());
+        return x + SECTION_GAP;
     }
 
-    void createToolbarAction(ToolbarMenu menu, int x, int y, int width, String label, ButtonWidget.PressAction action) {
-        createToolbarAction(menu, x, y, width, label, action, false);
+    private int addAction(int x, int y, String label, ButtonWidget.PressAction action) {
+        screen.publicAddDrawableChild(ButtonWidget.builder(Text.literal(label), action)
+                .dimensions(x, y, ACTION_WIDTH, BUTTON_HEIGHT).build());
+        return x + ACTION_WIDTH + BUTTON_GAP;
     }
 
-    void createToolbarAction(ToolbarMenu menu, int x, int y, int width, String label, ButtonWidget.PressAction action, boolean worldOnly) {
-        ButtonWidget button = ButtonWidget.builder(Text.literal(label), action).dimensions(x, y, width, 18).build();
-        screen.publicAddDrawableChild(button);
-        toolbarActionButtons.add(new ToolbarActionButton(menu, button, worldOnly));
-    }
-
-    void updateToolbarButtons() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        for (ToolbarActionButton actionButton : toolbarActionButtons) {
-            boolean visible = actionButton.menu == screen.activeToolbarMenu && (!actionButton.worldOnly || (client != null && client.world != null));
-            actionButton.button.visible = visible;
-            actionButton.button.active = visible;
-        }
-    }
-
-    void addDifficultyButtons(int y) {
+    void addDifficultyButtons(int y, int startX, int endX) {
         ChartDifficulty[] difficulties = ChartDifficulty.values();
-        int buttonWidth = (screen.publicWidth() - 74) / difficulties.length;
-        for (int i = 0; i < difficulties.length; i++) {
-            ChartDifficulty difficulty = difficulties[i];
-            int x = 74 + i * buttonWidth;
+        int gaps = BUTTON_GAP * (difficulties.length - 1);
+        int buttonWidth = EditorUtils.clamp((endX - startX - gaps) / difficulties.length, MIN_DIFFICULTY_WIDTH, MAX_DIFFICULTY_WIDTH);
+        int x = startX;
+        for (ChartDifficulty difficulty : difficulties) {
             ButtonWidget button = ButtonWidget.builder(Text.literal(difficulty.displayName()), b -> {
                 screen.state.setActiveDifficulty(difficulty);
                 screen.propertyPanel.populateFieldsFromSelection();
                 screen.propertyPanel.layoutPropertyFields();
-            }).dimensions(x, y, buttonWidth - 2, 18).build();
+                refreshDifficultyButtons();
+            }).dimensions(x, y, buttonWidth, BUTTON_HEIGHT).build();
             screen.publicAddDrawableChild(button);
+            difficultyButtons.add(new DifficultyButton(difficulty, button));
+            x += buttonWidth + BUTTON_GAP;
         }
+        refreshDifficultyButtons();
+    }
+
+    void refreshDifficultyButtons() {
+        for (DifficultyButton entry : difficultyButtons) {
+            boolean active = screen.state.activeDifficulty() == entry.difficulty();
+            entry.button().setMessage(Text.literal(entry.difficulty().displayName())
+                    .formatted(active ? Formatting.AQUA : Formatting.GRAY));
+        }
+    }
+
+    private record DifficultyButton(ChartDifficulty difficulty, ButtonWidget button) {
     }
 }
