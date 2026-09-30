@@ -1,6 +1,6 @@
 # Impact Analysis
 
-## Plugin (E:/Dev/RhythMC-Preview)
+## Plugin (D:/Dev/RhythMC-Preview)
 
 - **Deleted**: `Game/Scoreboard/` (7 classes), `Game/Guidance/BossBar/` (6
   classes), `Game/Guidance/JudgeMessages/ActionbarGuidance.java`,
@@ -30,7 +30,7 @@
   - `NoteObject.judge()` always releases the display (removed AUTOPLAY skip).
 - **Compile**: `mvn compile` green.
 
-## Mod (E:/Dev/RhythMCChartMaker)
+## Mod (D:/Dev/RhythMCChartMaker)
 
 - `ChartPreviewChannel`: `PREVIEW_MODE_AUTO = 0`, `PREVIEW_MODE_JUDGE = 1`.
 - `PreviewClient.sendPreviewStart(double startBeat, byte mode)` appends the

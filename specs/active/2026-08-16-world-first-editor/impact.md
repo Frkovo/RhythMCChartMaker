@@ -2,8 +2,8 @@
 
 ## Repositories
 
-- [x] ChartMaker: `E:/Dev/RhythMCChartMaker`
-- [x] Preview plugin: `E:/Dev/RhythMC-Preview`
+- [x] ChartMaker: `D:/Dev/RhythMCChartMaker`
+- [x] Preview plugin: `D:/Dev/RhythMC-Preview`
 - [x] Shared channel documentation
 
 ## Contract Impact

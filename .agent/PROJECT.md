@@ -8,9 +8,9 @@ RhythMCChartMaker is a Fabric client mod that provides a full chart editor for R
 
 ## Repositories
 
-- Chart maker mod: `E:/Dev/RhythMCChartMaker` (this repo)
-- Preview plugin: `E:/Dev/RhythMC-Preview`
-- Full-game plugin: `E:/Dev/RhythMC-Reborn`
+- Chart maker mod: `D:/Dev/RhythMCChartMaker` (this repo)
+- Preview plugin: `D:/Dev/RhythMC-Preview`
+- Full-game plugin: `D:/Dev/RhythMC-Reborn`
 
 ## Product Shape
 

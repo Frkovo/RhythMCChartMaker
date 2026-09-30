@@ -4,7 +4,7 @@ Updated: 2026-06-23
 
 ## Chart Maker Mod
 
-- Path: `E:/Dev/RhythMCChartMaker`
+- Path: `D:/Dev/RhythMCChartMaker`
 - Build: `./gradlew compileClientJava`
 - Runtime: Fabric client mod (Java 21, Minecraft 1.21)
 - Responsibilities: chart editor UI, local audio playback, `rhythmc:chart_preview` client sender, chart project IO
@@ -20,14 +20,14 @@ Updated: 2026-06-23
 
 ## Preview Plugin
 
-- Path: `E:/Dev/RhythMC-Preview`
+- Path: `D:/Dev/RhythMC-Preview`
 - Build: `mvn compile`
 - Responsibilities: chart visual playback, arena paste, file cache, `rhythmc:chart_preview` server receiver/sender
 
 ## Docs
 
-- Changelog: `E:/Dev/RhythMCChartMaker/docs/CHANGELOG.md`
-- Editor shortcuts: `E:/Dev/RhythMCChartMaker/docs/editor-shortcuts.md`
+- Changelog: `D:/Dev/RhythMCChartMaker/docs/CHANGELOG.md`
+- Editor shortcuts: `D:/Dev/RhythMCChartMaker/docs/editor-shortcuts.md`
 
 ## Git Start Commands
 

@@ -47,7 +47,7 @@ Required:
 
 ### High
 
-Changes to the `rhythmc:chart_preview` channel (opcodes, payload schema, chunking, lifecycle, trust model), chart JSON parsing semantics, or that also touch the Preview plugin at `E:/Dev/RhythMC-Preview`.
+Changes to the `rhythmc:chart_preview` channel (opcodes, payload schema, chunking, lifecycle, trust model), chart JSON parsing semantics, or that also touch the Preview plugin at `D:/Dev/RhythMC-Preview`.
 
 Required:
 

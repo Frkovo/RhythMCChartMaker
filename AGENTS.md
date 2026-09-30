@@ -20,11 +20,11 @@ Use `specs/` for medium/high-risk task planning and handoff. Use `docs/CHANGELOG
 
 | Area | Path | Responsibility |
 |---|---|---|
-| Chart maker mod | `E:/Dev/RhythMCChartMaker` | This repo. Fabric client mod: chart editor UI, local audio playback, `rhythmc:chart_preview` client sender, chart project IO |
-| Preview plugin | `E:/Dev/RhythMC-Preview` | Paper plugin, preview-only MVP: chart visual playback, arena paste, file cache, `rhythmc:chart_preview` server receiver/sender. No gameplay/scoreboard/economy/stats code. |
-| Full-game plugin | `E:/Dev/RhythMC-Reborn` | Reference for chart JSON semantics and gameplay behavior |
-| Agent memory | `E:/Dev/RhythMCChartMaker/.agent` | Current state, workflow, repo map, contracts, checklists |
-| Task specs | `E:/Dev/RhythMCChartMaker/specs` | Backlog, active task specs, handoff, completion records |
+| Chart maker mod | `D:/Dev/RhythMCChartMaker` | This repo. Fabric client mod: chart editor UI, local audio playback, `rhythmc:chart_preview` client sender, chart project IO |
+| Preview plugin | `D:/Dev/RhythMC-Preview` | Paper plugin, preview-only MVP: chart visual playback, arena paste, file cache, `rhythmc:chart_preview` server receiver/sender. No gameplay/scoreboard/economy/stats code. |
+| Full-game plugin | `D:/Dev/RhythMC-Reborn` | Reference for chart JSON semantics and gameplay behavior |
+| Agent memory | `D:/Dev/RhythMCChartMaker/.agent` | Current state, workflow, repo map, contracts, checklists |
+| Task specs | `D:/Dev/RhythMCChartMaker/specs` | Backlog, active task specs, handoff, completion records |
 
 ## Prime Directive
 
@@ -152,7 +152,7 @@ When modifying one of these, inspect and update every listed area.
 ./gradlew compileClientJava
 
 # Preview plugin (when channel changes)
-cd E:/Dev/RhythMC-Preview && mvn compile
+cd D:/Dev/RhythMC-Preview && mvn compile
 ```
 
 ## Schema Registry Summary
@@ -201,6 +201,6 @@ Before finishing, verify all applicable items:
 
 ## Cross-Repo Memory & Standing Protocol (2026-09)
 
-- For live cross-repo state (what the plugin/backend agents just did, what's parked or decided — e.g. judgment-granularity and chart-i18n decisions that affect chart semantics), read `E:/Dev/RhythMC-AGENTS/tasks/active/current-focus.md` first. 30s onboarding, avoids redoing decided work.
+- For live cross-repo state (what the plugin/backend agents just did, what's parked or decided — e.g. judgment-granularity and chart-i18n decisions that affect chart semantics), read `D:/Dev/RhythMC-AGENTS/tasks/active/current-focus.md` first. 30s onboarding, avoids redoing decided work.
 - Standing instruction: auto-commit + push after each finished task; stage only your own file paths (never `git add -A`); incorporate compatible changes from parallel agents, never force-push. Big work (contract/channel/chart-format changes, delete-rename, breaking, new dep, irreversible) asks the user first — contract changes additionally require updating ChartMaker + Preview + docs in the same task (see Contract change definition above).
 - Chart i18n is embedded in the chart files, not sidecar (see `RhythMC-Reborn/AGENTS.md` cross-repo conventions + `docs/chart-i18n-design.md` there). Chart JSON written by this mod must follow it: `name`/`composer`/`charters` never localized, `_`-prefixed keys are tool metadata.

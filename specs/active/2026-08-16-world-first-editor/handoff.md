@@ -16,16 +16,16 @@ two-player ownership validation remain pending.
   from preview serialization.
 - Corrected editor message directions and global server-selection focus.
 - Implemented owner-only Preview overlays and current-instance interaction
-  ownership checks in `E:/Dev/RhythMC-Preview`.
+  ownership checks in `D:/Dev/RhythMC-Preview`.
 - Added a client Stop barrier and server lifecycle generation fence. Stable
   previews pause and retain their Arena/Overlay; incomplete initialization is
   cancelled safely before a later request can reuse its slot.
 - Updated contracts, CURRENT files, shortcut/channel docs, AGENTS summaries,
   active specs, and changelogs in both repositories.
 - Passed ChartMaker compilation:
-  `$env:JAVA_HOME='E:\.jdk\zulu25'; .\gradlew.bat "-Dorg.gradle.java.home=E:\.jdk\zulu25" --no-daemon compileClientJava`.
+  `$env:JAVA_HOME='D:\.jdk\zulu25'; .\gradlew.bat "-Dorg.gradle.java.home=D:\.jdk\zulu25" --no-daemon compileClientJava`.
 - Passed Preview compilation:
-  `$env:JAVA_HOME='E:\.jdk\zulu25'; mvn compile`.
+  `$env:JAVA_HOME='D:\.jdk\zulu25'; mvn compile`.
 
 ## Pending Runtime Validation
 
